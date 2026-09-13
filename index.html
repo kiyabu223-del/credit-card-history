@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="カード利用履歴" />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>クレジットカード利用履歴</title>
-  <!-- v2.1 -->
+  <!-- v2.2 positional multi-pass OCR -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root{
@@ -281,86 +281,311 @@ $('#receiptInput').addEventListener('change', async e=>{
   const file=e.target.files?.[0]; e.target.value=''; if(!file)return;
   editingId=null;
   pendingImageData=await fileToDataURL(file);
+
   $('#entryTitle').textContent='読み取り確認';
   $('#receiptPreview').src=pendingImageData; $('#receiptPreview').classList.remove('hidden');
   $('#dateInput').value=''; $('#merchantInput').value=''; $('#amountInput').value='';
   $('#deleteBtn').classList.add('hidden');
   $('#ocrHint').classList.remove('hidden');
-  $('#ocrBox').classList.remove('hidden'); $('#ocrProgress').style.width='0%';
+  $('#ocrBox').classList.remove('hidden');
+  $('#ocrProgress').style.width='0%';
   $('#entryDialog').showModal();
 
   try{
-    $('#ocrStatus').textContent='画像を読みやすく補正中…';
-    const ocrImage = await preprocessReceiptImage(file);
+    $('#ocrStatus').textContent='レシート画像を補正中…';
+    const prepared = await prepareReceiptCanvases(file);
 
-    const result=await Tesseract.recognize(ocrImage,'jpn+eng',{
-      logger:m=>{
-        if(m.status==='recognizing text'){
-          const p=Math.round((m.progress||0)*100);
-          $('#ocrProgress').style.width=p+'%';
-          $('#ocrStatus').textContent=`文字を読み取り中… ${p}%`;
-        }else{
-          $('#ocrStatus').textContent='OCRを準備中…';
-        }
-      }
-    });
+    // 1) 全体：日付と予備情報
+    $('#ocrStatus').textContent='全体を読み取り中…';
+    const full = await recognizeReceipt(prepared.full, 0, 45);
 
-    $('#ocrProgress').style.width='100%';
-    const parsed=parseReceipt(result.data.text);
-    $('#dateInput').value=parsed.date || isoToday();
-    $('#merchantInput').value=parsed.merchant || '';
-    $('#amountInput').value=parsed.amount || '';
+    // 2) 上部：店名専用
+    $('#ocrStatus').textContent='店名を読み取り中…';
+    const top = await recognizeReceipt(prepared.top, 45, 72);
+
+    // 3) 下部：合計金額専用
+    $('#ocrStatus').textContent='合計金額を読み取り中…';
+    const bottom = await recognizeReceipt(prepared.bottom, 72, 100);
+
+    const date = extractReceiptDate(full.text);
+    const merchant =
+      merchantFromPositionedOCR(top.words, top.text) ||
+      likelyMerchant(normalizeOCRText(top.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) ||
+      likelyMerchant(normalizeOCRText(full.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
+
+    const amount =
+      amountFromPositionedOCR(bottom.words) ||
+      likelyAmountFromTotal(normalizeOCRText(bottom.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) ||
+      likelyAmountFromTotal(normalizeOCRText(full.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) ||
+      fallbackAmount(normalizeOCRText(bottom.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
+
+    $('#dateInput').value=date || isoToday();
+    $('#merchantInput').value=merchant || '';
+    $('#amountInput').value=amount || '';
 
     const missing=[];
-    if(!parsed.merchant) missing.push('店名');
-    if(!parsed.amount) missing.push('合計金額');
+    if(!merchant) missing.push('店名');
+    if(!amount) missing.push('合計金額');
     $('#ocrStatus').textContent = missing.length
       ? `読み取り完了（${missing.join('・')}を確認してください）`
       : '読み取り完了';
+
+    console.log('OCR v2.2', {
+      fullText: full.text,
+      topText: top.text,
+      bottomText: bottom.text,
+      merchant,
+      amount,
+      date
+    });
   }catch(err){
     console.error(err);
     $('#ocrStatus').textContent='読み取りに失敗しました。手動で入力してください。';
     $('#dateInput').value=isoToday();
   }
 });
+
 function fileToDataURL(file){
   return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)});
 }
 
-async function preprocessReceiptImage(file){
-  const url = URL.createObjectURL(file);
+async function prepareReceiptCanvases(file){
+  const url=URL.createObjectURL(file);
   try{
-    const img = await new Promise((resolve,reject)=>{
+    const img=await new Promise((resolve,reject)=>{
       const i=new Image();
       i.onload=()=>resolve(i);
       i.onerror=reject;
       i.src=url;
     });
 
+    // OCR精度と処理速度のバランス。文字が小さいレシートでも1800px程度確保。
     const maxWidth=1800;
     const scale=Math.min(1,maxWidth/img.naturalWidth);
     const w=Math.max(1,Math.round(img.naturalWidth*scale));
     const h=Math.max(1,Math.round(img.naturalHeight*scale));
 
-    const canvas=document.createElement('canvas');
-    canvas.width=w; canvas.height=h;
-    const ctx=canvas.getContext('2d',{willReadFrequently:true});
-    ctx.drawImage(img,0,0,w,h);
+    const source=document.createElement('canvas');
+    source.width=w; source.height=h;
+    const sctx=source.getContext('2d',{willReadFrequently:true});
+    sctx.drawImage(img,0,0,w,h);
 
-    const imageData=ctx.getImageData(0,0,w,h);
+    // グレースケール＋コントラスト強調
+    const imageData=sctx.getImageData(0,0,w,h);
     const d=imageData.data;
     for(let i=0;i<d.length;i+=4){
       const gray=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-      let v=(gray-128)*1.55+128;
+      let v=(gray-128)*1.7+128;
       v=Math.max(0,Math.min(255,v));
-      if(v>210)v=255;
+      if(v>215)v=255;
+      if(v<45)v=0;
       d[i]=d[i+1]=d[i+2]=v;
     }
-    ctx.putImageData(imageData,0,0);
-    return await new Promise(resolve=>canvas.toBlob(b=>resolve(b||file),'image/jpeg',0.92));
+    sctx.putImageData(imageData,0,0);
+
+    function crop(yStartRatio,yEndRatio){
+      const y0=Math.floor(h*yStartRatio);
+      const y1=Math.floor(h*yEndRatio);
+      const ch=Math.max(1,y1-y0);
+      const c=document.createElement('canvas');
+      c.width=w; c.height=ch;
+      c.getContext('2d').drawImage(source,0,y0,w,ch,0,0,w,ch);
+      return c;
+    }
+
+    return {
+      full:source,
+      // 店名は通常レシート上部。少し広めに35%確保。
+      top:crop(0,0.35),
+      // 合計は下半分にあることが多い。45%以降を対象。
+      bottom:crop(0.45,1)
+    };
   }finally{
     URL.revokeObjectURL(url);
   }
+}
+
+async function recognizeReceipt(image,progressStart,progressEnd){
+  const result=await Tesseract.recognize(image,'jpn+eng',{
+    logger:m=>{
+      if(m.status==='recognizing text'){
+        const raw=Math.max(0,Math.min(1,m.progress||0));
+        const p=Math.round(progressStart+(progressEnd-progressStart)*raw);
+        $('#ocrProgress').style.width=p+'%';
+      }
+    }
+  });
+
+  const data=result?.data||{};
+  // Tesseract.jsの版によってwordsの有無が違うため、無ければblocks/linesから回収。
+  let words=Array.isArray(data.words)?data.words:[];
+  if(!words.length && Array.isArray(data.blocks)){
+    for(const block of data.blocks){
+      for(const para of (block.paragraphs||[])){
+        for(const line of (para.lines||[])){
+          for(const word of (line.words||[])) words.push(word);
+        }
+      }
+    }
+  }
+
+  return {text:data.text||'',words};
+}
+
+function wordText(w){
+  return normalizeOCRText(w?.text||w?.symbols?.map(s=>s.text).join('')||'').trim();
+}
+function wordBox(w){
+  const b=w?.bbox||w?.boundingBox||{};
+  return {
+    x0:Number(b.x0 ?? b.left ?? 0),
+    y0:Number(b.y0 ?? b.top ?? 0),
+    x1:Number(b.x1 ?? b.right ?? 0),
+    y1:Number(b.y1 ?? b.bottom ?? 0)
+  };
+}
+function isMoneyWord(s){
+  const t=normalizeOCRText(s).replace(/\s/g,'');
+  return /^(?:¥)?\d{1,3}(?:,\d{3})+(?:円)?$/.test(t) ||
+         /^(?:¥)?\d{2,8}(?:円)?$/.test(t);
+}
+function moneyFromWord(s){
+  const m=normalizeOCRText(s).replace(/\s/g,'').match(/(?:¥)?(\d{1,3}(?:,\d{3})+|\d{2,8})(?:円)?/);
+  if(!m)return null;
+  const n=Number(m[1].replace(/,/g,''));
+  return Number.isFinite(n)&&n>=10&&n<100000000?n:null;
+}
+
+function groupWordsIntoLines(words){
+  const cleaned=(words||[])
+    .map(w=>({text:wordText(w),box:wordBox(w),confidence:Number(w.confidence??w.conf??0)}))
+    .filter(w=>w.text && w.box.y1>w.box.y0);
+
+  cleaned.sort((a,b)=>a.box.y0-b.box.y0 || a.box.x0-b.box.x0);
+  const lines=[];
+
+  for(const w of cleaned){
+    const cy=(w.box.y0+w.box.y1)/2;
+    const h=Math.max(1,w.box.y1-w.box.y0);
+    let best=null,bestDist=Infinity;
+    for(const line of lines){
+      const dist=Math.abs(cy-line.cy);
+      if(dist < Math.max(h,line.avgHeight)*0.65 && dist<bestDist){
+        best=line; bestDist=dist;
+      }
+    }
+    if(!best){
+      best={words:[],cy,avgHeight:h};
+      lines.push(best);
+    }
+    best.words.push(w);
+    const n=best.words.length;
+    best.cy=((best.cy*(n-1))+cy)/n;
+    best.avgHeight=((best.avgHeight*(n-1))+h)/n;
+  }
+
+  for(const line of lines) line.words.sort((a,b)=>a.box.x0-b.box.x0);
+  return lines.sort((a,b)=>a.cy-b.cy);
+}
+
+function amountFromPositionedOCR(words){
+  const lines=groupWordsIntoLines(words);
+  const totalLabel=/^(?:総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|クレジット支払)$/;
+  const excluded=/小計|消費税|内税|外税|税率|釣銭|お釣|預り|預かり/;
+
+  // A. 同じ行：「合計」の右側にある数字を最優先
+  for(const line of lines){
+    const joined=line.words.map(w=>w.text).join('');
+    if(excluded.test(joined))continue;
+
+    for(let i=0;i<line.words.length;i++){
+      // OCRが「合」「計」に分割する場合も想定
+      const one=line.words[i].text.replace(/\s/g,'');
+      const two=(one+(line.words[i+1]?.text||'')).replace(/\s/g,'');
+      const labelMatch=totalLabel.test(one) || totalLabel.test(two) || /合計|総合計/.test(one) || /合計|総合計/.test(two);
+      if(!labelMatch)continue;
+
+      const labelEnd = totalLabel.test(two) || /合計|総合計/.test(two)
+        ? (line.words[i+1]?.box.x1 ?? line.words[i].box.x1)
+        : line.words[i].box.x1;
+
+      const right=line.words
+        .filter(w=>w.box.x0>=labelEnd-3 && isMoneyWord(w.text))
+        .map(w=>({n:moneyFromWord(w.text),x:w.box.x0}))
+        .filter(x=>x.n)
+        .sort((a,b)=>a.x-b.x);
+
+      if(right.length)return right[0].n;
+    }
+  }
+
+  // B. 「合計」が単独行、金額が直下の行にあるケース
+  for(let i=0;i<lines.length;i++){
+    const joined=lines[i].words.map(w=>w.text).join('');
+    if(!/合計|総合計|お支払|ご請求|請求額|支払額/.test(joined) || excluded.test(joined))continue;
+    for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
+      const nums=lines[j].words
+        .filter(w=>isMoneyWord(w.text))
+        .map(w=>moneyFromWord(w.text))
+        .filter(Boolean);
+      if(nums.length)return nums[nums.length-1];
+    }
+  }
+  return null;
+}
+
+function merchantFromPositionedOCR(words,fallbackText){
+  const lines=groupWordsIntoLines(words);
+  const blacklist=/TEL|電話|FAX|住所|〒|レシート|領収|担当|日時|日付|合計|小計|消費税|税率|現金|釣銭|お預り|クレジット|カード|No\.?|番号|登録番号|営業時間|取引|商品|単価|数量|税込|税抜|ありがとう|毎度|http|www/i;
+  let best={text:'',score:-999};
+
+  lines.forEach((line,idx)=>{
+    const txt=line.words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+    if(txt.length<2||txt.length>50||blacklist.test(txt))return;
+
+    const letters=(txt.match(/[A-Za-z\u3040-\u30ff\u3400-\u9fff]/g)||[]).length;
+    const digits=(txt.match(/\d/g)||[]).length;
+    if(letters<2 || digits>Math.max(3,txt.length*0.35))return;
+
+    const avgHeight=line.avgHeight||0;
+    const avgConf=line.words.reduce((s,w)=>s+(w.confidence||0),0)/Math.max(1,line.words.length);
+
+    // 上部にあり、文字が大きく、信頼度が高いほど店名らしい。
+    let score=40-idx*2;
+    score += avgHeight*0.55;
+    score += avgConf*0.08;
+    score += Math.min(10,letters*0.5);
+    if(/店$|支店$|本店$|STORE|SHOP|CAFE|MART|DINER|HOTEL/i.test(txt))score+=10;
+    if(/株式会社|有限会社|合同会社/.test(txt))score-=4;
+    if(/[都道府県市区町村]\S*\d/.test(txt))score-=12;
+
+    if(score>best.score)best={text:txt,score};
+  });
+
+  if(best.text)return best.text;
+  const linesText=normalizeOCRText(fallbackText).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  return likelyMerchant(linesText);
+}
+
+function extractReceiptDate(text){
+  const normalized=normalizeOCRText(text);
+  const lines=normalized.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const patterns=[
+    /(20\d{2})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})\s*日?/,
+    /(\d{2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/
+  ];
+  for(const line of lines){
+    for(const p of patterns){
+      const m=line.match(p);
+      if(!m)continue;
+      let y=Number(m[1]); if(y<100)y+=2000;
+      const mo=Number(m[2]),day=Number(m[3]);
+      if(mo>=1&&mo<=12&&day>=1&&day<=31){
+        return `${y}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      }
+    }
+  }
+  return '';
 }
 
 function normalizeOCRText(s){
