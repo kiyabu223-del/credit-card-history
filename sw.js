@@ -1,4 +1,4 @@
-const CACHE='cc-history-v7';
+const CACHE='cc-history-v8';
 const ASSETS=['./','./index.html','./manifest.webmanifest','./icon.svg'];
 
 self.addEventListener('install',event=>{
