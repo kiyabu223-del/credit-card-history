@@ -634,31 +634,191 @@ function parseMerchantZoom(lines,pageHeight,text){
 }
 
 function parseAmountZoom(lines){
-  // 拡大写真では「合計」と金額が一緒に写る前提。
-  // 既存parseAmountを使いつつ、合計行の復元候補を追加。
-  const amount=parseAmount(lines);
-  if(amount)return amount;
+  if(!lines?.length)return '';
 
-  const total=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払/;
-  const excl=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
+  const totalRe=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/;
+  const excludeRe=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引|現金お預り/;
 
-  for(let i=0;i<lines.length;i++){
-    const raw=lines[i].words.map(w=>w.text).join(' ');
-    const joined=raw.replace(/\s/g,'');
-    if(excl.test(joined)||!total.test(joined))continue;
-
-    // Text-level reconstruction: 1 , 234 / 1 234 / ¥ 1,234
-    let t=normalizeText(raw)
-      .replace(/(\d{1,3})\s*[,，]\s*(\d{3})(?!\d)/g,'$1,$2')
-      .replace(/(^|[^\d])(\d{1,3})\s+(\d{3})(?!\d)/g,'$1$2$3');
-
-    const matches=[...t.matchAll(/(?:¥\s*)?(\d{1,3}(?:,\d{3})+|\d{2,8})(?:円)?/g)];
-    if(matches.length){
-      const n=Number(matches[matches.length-1][1].replace(/,/g,''));
-      if(n>=10&&n<10000000)return n;
+  // 全体の文字サイズ基準
+  const heights=[];
+  let pageMaxX=1;
+  for(const line of lines){
+    for(const w of line.words){
+      heights.push(Math.max(1,w.box.y1-w.box.y0));
+      pageMaxX=Math.max(pageMaxX,w.box.x1);
     }
   }
-  return '';
+  heights.sort((a,b)=>a-b);
+  const medianH=heights[Math.floor(heights.length/2)]||1;
+
+  const candidates=[];
+
+  function pushCandidate(n, line, lineIndex, x0, x1, h, base, reason, raw=''){
+    if(!n || n<10 || n>10000000)return;
+    const hr=Math.max(1,h)/medianH;
+    const rr=x1/pageMaxX;
+    let score=base;
+
+    // 合計写真では大きい文字をかなり強く評価
+    if(hr>=1.10) score += Math.min(60,(hr-1)*50);
+    if(hr>=1.45) score += 25;
+
+    // 金額は右側にあることが多い
+    if(rr>=0.65) score += (rr-0.65)*55;
+    if(rr>=0.85) score += 15;
+
+    // 千区切り表記は金額らしい
+    if(/[,，]/.test(raw)) score += 12;
+    if(/[¥￥円]/.test(raw)) score += 8;
+
+    candidates.push({n,score,reason,lineIndex,hr,rr,raw});
+  }
+
+  // 同じ行の複数wordをつないで金額候補を作る
+  function joinedMoney(line){
+    const ws=(line.words||[]).slice().sort((a,b)=>a.box.x0-b.box.x0);
+    const result=[];
+
+    // 単体
+    for(const w of ws){
+      const n=moneyNumber(w.text);
+      if(n){
+        result.push({
+          n,raw:w.text,x0:w.box.x0,x1:w.box.x1,
+          h:Math.max(1,w.box.y1-w.box.y0)
+        });
+      }
+    }
+
+    // 1 , 234 / 1 234 / ¥ 1,234 のような分割を最大4wordまで結合
+    for(let i=0;i<ws.length;i++){
+      let raw='',x0=ws[i].box.x0,x1=ws[i].box.x1,h=0;
+      for(let j=i;j<Math.min(ws.length,i+4);j++){
+        if(j>i){
+          const prev=ws[j-1],cur=ws[j];
+          const avgH=((prev.box.y1-prev.box.y0)+(cur.box.y1-cur.box.y0))/2;
+          const gap=cur.box.x0-prev.box.x1;
+          if(gap>Math.max(16,avgH*1.15))break;
+        }
+        const piece=normalizeText(ws[j].text).replace(/\s/g,'');
+        if(!/^[¥￥円\d,，.・]+$/.test(piece))break;
+
+        raw+=piece;
+        x1=ws[j].box.x1;
+        h=Math.max(h,ws[j].box.y1-ws[j].box.y0);
+
+        if(j>i){
+          let norm=raw
+            .replace(/[，・]/g,',')
+            .replace(/[¥￥円]/g,'')
+            .replace(/\s/g,'');
+
+          // 1.234 が千区切りっぽい場合
+          if(/^\d{1,3}\.\d{3}$/.test(norm)) norm=norm.replace('.',',');
+
+          // 1 234 はraw上では1234になる
+          const cleaned=norm.replace(/,/g,'');
+          if(/^\d{2,8}$/.test(cleaned)){
+            const n=Number(cleaned);
+            if(n>=10&&n<10000000){
+              result.push({n,raw,x0,x1,h});
+            }
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  // 1) 「合計」ラベルのある行を最優先
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const rawLine=line.words.map(w=>w.text).join(' ');
+    const compact=rawLine.replace(/\s/g,'');
+
+    if(excludeRe.test(compact))continue;
+    if(!totalRe.test(compact))continue;
+
+    let labelEnd=0;
+    for(let k=0;k<line.words.length;k++){
+      const upto=line.words.slice(0,k+1).map(w=>w.text).join('').replace(/\s/g,'');
+      if(totalRe.test(upto)) labelEnd=Math.max(labelEnd,line.words[k].box.x1);
+    }
+
+    const same=joinedMoney(line);
+    for(const m of same){
+      const isRight=m.x0>=labelEnd-6;
+      pushCandidate(m.n,line,i,m.x0,m.x1,m.h,isRight?260:170,
+                    isRight?'total-right':'total-line',m.raw);
+    }
+
+    // 2) 合計の直下2行
+    for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
+      const next=lines[j];
+      const nextText=next.words.map(w=>w.text).join('');
+      if(excludeRe.test(nextText))continue;
+      for(const m of joinedMoney(next)){
+        pushCandidate(m.n,next,j,m.x0,m.x1,m.h,j===i+1?170:125,
+                      'below-total',m.raw);
+      }
+    }
+  }
+
+  // 3) 「合計」がOCRで壊れた場合。
+  // 合計アップ写真なので、最大文字サイズ＋右寄せを強く評価。
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const rawLine=line.words.map(w=>w.text).join('');
+    if(excludeRe.test(rawLine))continue;
+
+    for(const m of joinedMoney(line)){
+      const hr=m.h/medianH;
+      const rr=m.x1/pageMaxX;
+
+      if(hr>=1.20 || rr>=0.78){
+        let base=40;
+        if(hr>=1.35)base+=35;
+        if(hr>=1.60)base+=30;
+        if(rr>=0.85)base+=20;
+        pushCandidate(m.n,line,i,m.x0,m.x1,m.h,base,'large-right-fallback',m.raw);
+      }
+    }
+  }
+
+  if(!candidates.length){
+    // 最後の保険だけ従来ロジック
+    return parseAmount(lines) || '';
+  }
+
+  // 同額が複数回出る場合（合計とカード支払等）は信頼度を上げる
+  const freq=new Map();
+  for(const c of candidates)freq.set(c.n,(freq.get(c.n)||0)+1);
+  for(const c of candidates){
+    const f=freq.get(c.n)||1;
+    if(f>=2)c.score+=18*(f-1);
+  }
+
+  // 「234」と「1,234」が同時に候補の場合、
+  // 末尾3桁が一致し、大きい方が合計行に近ければ4桁以上を優先。
+  for(const a of candidates){
+    for(const b of candidates){
+      if(a===b)continue;
+      if(a.n>=1000 && b.n<1000 && a.n%1000===b.n){
+        a.score+=22;
+        b.score-=10;
+      }
+    }
+  }
+
+  candidates.sort((a,b)=>
+    b.score-a.score ||
+    b.hr-a.hr ||
+    b.rr-a.rr ||
+    b.n-a.n
+  );
+
+  console.log('amount zoom candidates v3.2',candidates.slice(0,12));
+  return candidates[0]?.n || '';
 }
 
 $('#analyzeMultiBtn').onclick=async()=>{
