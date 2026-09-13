@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="カード利用履歴" />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>クレジットカード利用履歴</title>
-  <!-- v2.4 font-size amount scoring + robust merchant learning -->
+  <!-- v2.5 joined money tokens -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root{
@@ -510,6 +510,129 @@ function groupWordsIntoLines(words){
   return lines.sort((a,b)=>a.cy-b.cy);
 }
 
+
+function normalizeMoneyPiece(s){
+  return normalizeOCRText(s)
+    .replace(/\s+/g,'')
+    .replace(/[，､]/g,',')
+    .replace(/[．。]/g,'.')
+    // OCRがコンマを句読点や小さな記号として読むケースを寄せる
+    .replace(/[·・]/g,',');
+}
+
+function joinedMoneyCandidatesFromLine(line){
+  const ws=(line?.words||[]).slice().sort((a,b)=>a.box.x0-b.box.x0);
+  const out=[];
+
+  for(let i=0;i<ws.length;i++){
+    const first=ws[i];
+    const firstText=normalizeMoneyPiece(first.text);
+
+    // 数字・円記号から始まるものだけ対象
+    if(!/[¥￥\d]/.test(firstText))continue;
+
+    let combined=firstText;
+    let x0=first.box.x0;
+    let x1=first.box.x1;
+    let maxHeight=Math.max(1,first.box.y1-first.box.y0);
+
+    for(let j=i;j<Math.min(ws.length,i+5);j++){
+      if(j>i){
+        const prev=ws[j-1];
+        const cur=ws[j];
+        const prevH=Math.max(1,prev.box.y1-prev.box.y0);
+        const curH=Math.max(1,cur.box.y1-cur.box.y0);
+        const avgH=(prevH+curH)/2;
+        const gap=cur.box.x0-prev.box.x1;
+
+        // 「1 , 234」「1 234」のような分割を結合。
+        // 文字高さの0.9倍以内の横隙間なら同じ金額とみなす。
+        if(gap > Math.max(10,avgH*0.9))break;
+
+        const piece=normalizeMoneyPiece(cur.text);
+        if(!/^[¥￥,\.\d円]+$/.test(piece))break;
+
+        combined += piece;
+        x1=cur.box.x1;
+        maxHeight=Math.max(maxHeight,Math.max(1,cur.box.y1-cur.box.y0));
+      }
+
+      let compact=combined
+        .replace(/[¥￥円]/g,'')
+        .replace(/\s/g,'');
+
+      // コンマがOCRで抜けても「1」「234」を結合した時点で1234として扱う
+      // 逆に "1,234" は通常通り1234へ。
+      if(!/^\d[\d,\.]*$/.test(compact))continue;
+
+      // 小数はレシート合計では通常不要。末尾 .00 は落とす。
+      compact=compact.replace(/\.00$/,'');
+      const digitsOnly=compact.replace(/[,.]/g,'');
+
+      if(digitsOnly.length<2 || digitsOnly.length>8)continue;
+
+      const n=Number(digitsOnly);
+      if(!Number.isFinite(n) || n<10 || n>=100000000)continue;
+
+      // 少なくとも2単語を結合した候補、または元々完全な金額表記を候補に。
+      const joinedCount=j-i+1;
+      const hadThousandsSeparator=/\d[,，]\d{3}/.test(combined);
+      const looksSplitThousands =
+        joinedCount>=2 &&
+        /^\d{1,3}[,，]?\d{3}(?:[,，]?\d{3})?$/.test(
+          combined.replace(/[¥￥円\s]/g,'')
+        );
+
+      if(joinedCount>=2 || hadThousandsSeparator || looksSplitThousands){
+        out.push({
+          n,
+          text:combined,
+          box:{x0,x1,y0:first.box.y0,y1:first.box.y1},
+          height:maxHeight,
+          joinedCount,
+          thousandsLike:hadThousandsSeparator || looksSplitThousands
+        });
+      }
+    }
+  }
+
+  // 重複候補を除く
+  const uniq=[];
+  const seen=new Set();
+  for(const c of out){
+    const key=`${c.n}:${Math.round(c.box.x0)}:${Math.round(c.box.x1)}`;
+    if(!seen.has(key)){
+      seen.add(key);
+      uniq.push(c);
+    }
+  }
+  return uniq;
+}
+
+function allMoneyCandidatesInLine(line){
+  const out=[];
+
+  // まず単語単体
+  for(const w of (line.words||[])){
+    const n=moneyFromWord(w.text);
+    if(n){
+      out.push({
+        n,
+        text:w.text,
+        box:w.box,
+        height:Math.max(1,w.box.y1-w.box.y0),
+        joinedCount:1,
+        thousandsLike:/[,，]/.test(w.text)
+      });
+    }
+  }
+
+  // 次に横並びの数字を結合した候補
+  out.push(...joinedMoneyCandidatesFromLine(line));
+
+  return out;
+}
+
 function amountFromPositionedOCR(words){
   const lines=groupWordsIntoLines(words);
   if(!lines.length)return null;
@@ -531,23 +654,28 @@ function amountFromPositionedOCR(words){
 
   const candidates=[];
 
-  function addCandidate(n,word,line,lineIndex,baseScore,reason){
+  function addCandidate(c,line,lineIndex,baseScore,reason){
+    const n=c.n;
     if(!n || n<10 || n>10000000)return;
-    const h=Math.max(1,word.box.y1-word.box.y0);
+
+    const h=Math.max(1,c.height || (c.box.y1-c.box.y0));
     const heightRatio=h/Math.max(1,medianHeight);
     const lineRatio=(line.avgHeight||h)/Math.max(1,medianHeight);
-    const rightRatio=pageMaxX ? word.box.x1/pageMaxX : 0;
+    const rightRatio=pageMaxX ? c.box.x1/pageMaxX : 0;
 
     let score=baseScore;
-    // 大きな文字ほど最終合計らしい
     if(heightRatio>=1.15) score += Math.min(32,(heightRatio-1)*28);
     if(lineRatio>=1.15) score += Math.min(22,(lineRatio-1)*22);
-    // レシートの右側に寄った金額を優先
     score += Math.max(0,(rightRatio-0.55)*24);
-    if(/[¥￥円]/.test(word.text)) score+=10;
-    if(/,\d{3}/.test(word.text)) score+=3;
 
-    candidates.push({n,score,heightRatio,lineRatio,rightRatio,lineIndex,reason,text:word.text});
+    if(/[¥￥円]/.test(c.text)) score+=10;
+    if(c.thousandsLike) score+=18;          // 「1,234」型を強く加点
+    if((c.joinedCount||1)>=2) score+=14;    // 分割OCRを復元できた候補を加点
+
+    candidates.push({
+      n,score,heightRatio,lineRatio,rightRatio,lineIndex,reason,text:c.text,
+      joinedCount:c.joinedCount||1
+    });
   }
 
   for(let i=0;i<lines.length;i++){
@@ -556,55 +684,51 @@ function amountFromPositionedOCR(words){
     if(excluded.test(joined))continue;
 
     const hasTotalLabel=totalish.test(joined);
+    const moneyCandidates=allMoneyCandidatesInLine(line);
 
-    // 「合計」の行なら、その右側の数字を圧倒的に優先
     if(hasTotalLabel){
       let labelEnd=0;
       for(let k=0;k<line.words.length;k++){
         const upto=line.words.slice(0,k+1).map(w=>w.text).join('').replace(/\s/g,'');
         if(totalish.test(upto)) labelEnd=Math.max(labelEnd,line.words[k].box.x1);
       }
-      for(const w of line.words){
-        const n=moneyFromWord(w.text);
-        if(!n)continue;
-        const isRight = w.box.x0 >= labelEnd-4;
-        addCandidate(n,w,line,i,isRight?150:90,isRight?'total-same-line-right':'total-same-line');
+
+      for(const c of moneyCandidates){
+        const isRight=c.box.x0>=labelEnd-4;
+        addCandidate(c,line,i,isRight?175:100,isRight?'total-same-line-right':'total-same-line');
       }
 
-      // 合計ラベルの直下1〜2行。文字が大きければさらに加点。
       for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
         const next=lines[j];
         const nextJoined=next.words.map(w=>w.text).join('').replace(/\s/g,'');
         if(excluded.test(nextJoined))continue;
-        for(const w of next.words){
-          const n=moneyFromWord(w.text);
-          if(n)addCandidate(n,w,next,j,j===i+1?105:85,'below-total');
+
+        for(const c of allMoneyCandidatesInLine(next)){
+          addCandidate(c,next,j,j===i+1?115:90,'below-total');
         }
       }
     }
 
-    // 合計ラベルがOCRで壊れたケース用：
-    // 大きな数字・右寄せ・下部という特徴で候補化。
-    for(const w of line.words){
-      const n=moneyFromWord(w.text);
-      if(!n)continue;
-      const h=Math.max(1,w.box.y1-w.box.y0);
+    // 合計ラベルを読み損ねた場合の補助候補
+    for(const c of moneyCandidates){
+      const h=Math.max(1,c.height || (c.box.y1-c.box.y0));
       const ratio=h/Math.max(1,medianHeight);
-      const rightRatio=pageMaxX?w.box.x1/pageMaxX:0;
-      if(ratio>=1.22 || rightRatio>=0.78){
+      const rightRatio=pageMaxX?c.box.x1/pageMaxX:0;
+
+      if(ratio>=1.22 || rightRatio>=0.78 || c.thousandsLike){
         let base=24;
         if(ratio>=1.35)base+=18;
         if(rightRatio>=0.86)base+=12;
-        // 下部OCRなので後ろの行ほど最終合計らしい
-        base += (i/Math.max(1,lines.length-1))*14;
-        addCandidate(n,w,line,i,base,'large-or-right');
+        if(c.thousandsLike)base+=15;
+        if((c.joinedCount||1)>=2)base+=8;
+        base+=(i/Math.max(1,lines.length-1))*14;
+        addCandidate(c,line,i,base,'large-right-or-thousands');
       }
     }
   }
 
   if(!candidates.length)return null;
 
-  // 同じ金額が複数箇所に出る（合計とカード支払など）場合は強く加点。
   const freq=new Map();
   for(const c of candidates)freq.set(c.n,(freq.get(c.n)||0)+1);
   for(const c of candidates){
@@ -612,9 +736,14 @@ function amountFromPositionedOCR(words){
     if(f>=2)c.score+=12*(f-1);
   }
 
-  candidates.sort((a,b)=>b.score-a.score || b.heightRatio-a.heightRatio || b.rightRatio-a.rightRatio);
+  candidates.sort((a,b)=>
+    b.score-a.score ||
+    b.joinedCount-a.joinedCount ||
+    b.heightRatio-a.heightRatio ||
+    b.rightRatio-a.rightRatio
+  );
 
-  console.log('amount candidates',candidates.slice(0,8));
+  console.log('amount candidates v2.5',candidates.slice(0,10));
   return candidates[0]?.n || null;
 }
 
