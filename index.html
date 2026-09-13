@@ -1,127 +1,87 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a84ff" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="カード利用履歴" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <title>クレジットカード利用履歴</title>
-  <!-- v2.6 stable comma recovery -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <style>
-    :root{
-      --bg:#f5f7fb; --card:#fff; --text:#111827; --muted:#6b7280;
-      --blue:#0a84ff; --line:#e5e7eb; --danger:#ef4444;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Yu Gothic",sans-serif;
-      background:var(--bg);color:var(--text);padding-bottom:calc(96px + env(safe-area-inset-bottom));
-    }
-    header{
-      position:sticky;top:0;z-index:10;background:rgba(245,247,251,.94);
-      backdrop-filter:blur(12px);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
-      border-bottom:1px solid var(--line)
-    }
-    h1{font-size:18px;margin:0;text-align:center}
-    .wrap{max-width:720px;margin:auto;padding:14px}
-    .monthbar{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}
-    button{font:inherit}
-    .iconbtn{border:0;background:transparent;font-size:28px;color:var(--blue);padding:8px 14px}
-    .monthtitle{font-weight:700}
-    .summary{
-      background:linear-gradient(135deg,#eaf4ff,#f8fbff);border:1px solid #d7eaff;
-      border-radius:18px;padding:18px;margin-bottom:14px
-    }
-    .summary .label{font-size:13px;color:var(--muted)}
-    .summary .total{font-size:34px;font-weight:800;margin-top:2px}
-    .summary .count{font-size:13px;color:var(--muted);margin-top:4px}
-    .table-card{background:var(--card);border-radius:16px;overflow:hidden;border:1px solid var(--line)}
-    .thead,.row{display:grid;grid-template-columns:72px 1fr 92px;gap:8px;align-items:center;padding:11px 12px}
-    .thead{background:#f9fafb;color:var(--muted);font-size:12px;font-weight:700}
-    .row{border-top:1px solid var(--line);font-size:14px}
-    .row button{all:unset;display:contents;cursor:pointer}
-    .amount{text-align:right;font-variant-numeric:tabular-nums}
-    .empty{padding:28px;text-align:center;color:var(--muted)}
-    .actions{
-      position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);
-      backdrop-filter:blur(12px);border-top:1px solid var(--line);
-      padding:12px 14px calc(12px + env(safe-area-inset-bottom));
-      display:flex;gap:10px;z-index:20
-    }
-    .btn{border:0;border-radius:14px;padding:14px 16px;font-weight:700;flex:1}
-    .primary{background:var(--blue);color:#fff}.secondary{background:#eaf4ff;color:#0066cc}
-    dialog{
-      width:min(92vw,560px);border:0;border-radius:20px;padding:0;
-      box-shadow:0 20px 60px rgba(0,0,0,.25)
-    }
-    dialog::backdrop{background:rgba(0,0,0,.35)}
-    .modal{padding:18px}
-    .modal h2{margin:0 0 14px;font-size:20px}
-    label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
-    input{width:100%;font:inherit;padding:12px;border:1px solid #d1d5db;border-radius:12px;background:#fff}
-    .modal-actions{display:flex;gap:10px;margin-top:16px}
-    .danger{background:#fee2e2;color:#b91c1c}
-    .ghost{background:#f3f4f6;color:#111827}
-    .preview{width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:#f3f4f6;margin:8px 0}
-    .ocr-status{font-size:13px;color:var(--muted);margin:8px 0}
-    .progress{height:8px;background:#e5e7eb;border-radius:99px;overflow:hidden}
-    .progress>div{height:100%;width:0;background:var(--blue);transition:width .2s}
-    .small{font-size:12px;color:var(--muted);line-height:1.5}
-    .hidden{display:none!important}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a84ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="カード利用履歴">
+<link rel="manifest" href="manifest.webmanifest">
+<title>クレジットカード利用履歴</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#111827;--muted:#6b7280;--blue:#0a84ff;--line:#e5e7eb;--danger:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Yu Gothic",sans-serif;background:var(--bg);color:var(--text);padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:10;background:rgba(245,247,251,.95);backdrop-filter:blur(12px);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0;text-align:center}
+.wrap{max-width:720px;margin:auto;padding:14px}
+.monthbar{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}
+button{font:inherit}.iconbtn{border:0;background:transparent;font-size:28px;color:var(--blue);padding:8px 14px}
+.monthtitle{font-weight:700}
+.summary{background:linear-gradient(135deg,#eaf4ff,#f8fbff);border:1px solid #d7eaff;border-radius:18px;padding:18px;margin-bottom:14px}
+.summary .label{font-size:13px;color:var(--muted)}.summary .total{font-size:34px;font-weight:800;margin-top:2px}.summary .count{font-size:13px;color:var(--muted);margin-top:4px}
+.table-card{background:var(--card);border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+.thead,.row{display:grid;grid-template-columns:72px 1fr 92px;gap:8px;align-items:center;padding:11px 12px}
+.thead{background:#f9fafb;color:var(--muted);font-size:12px;font-weight:700}.row{border-top:1px solid var(--line);font-size:14px}
+.row button{all:unset;display:contents;cursor:pointer}.amount{text-align:right;font-variant-numeric:tabular-nums}.empty{padding:28px;text-align:center;color:var(--muted)}
+.actions{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:12px 14px calc(12px + env(safe-area-inset-bottom));display:flex;gap:10px;z-index:20}
+.btn{border:0;border-radius:14px;padding:14px 16px;font-weight:700;flex:1}.primary{background:var(--blue);color:#fff}.secondary{background:#eaf4ff;color:#0066cc}.ghost{background:#f3f4f6}.danger{background:#fee2e2;color:#b91c1c}
+dialog{width:min(92vw,560px);border:0;border-radius:20px;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(0,0,0,.35)}.modal{padding:18px}.modal h2{margin:0 0 14px;font-size:20px}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}input{width:100%;font:inherit;padding:12px;border:1px solid #d1d5db;border-radius:12px;background:#fff}
+.modal-actions{display:flex;gap:10px;margin-top:16px}.preview{width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:#f3f4f6;margin:8px 0}
+.ocr-status{font-size:13px;color:var(--muted);margin:8px 0}.progress{height:8px;background:#e5e7eb;border-radius:99px;overflow:hidden}.progress>div{height:100%;width:0;background:var(--blue);transition:width .2s}
+.small{font-size:12px;color:var(--muted);line-height:1.5}.hidden{display:none!important}
+.debug{margin-top:12px;padding:10px;border:1px dashed #d1d5db;border-radius:10px;font-size:11px;color:#6b7280;white-space:pre-wrap;max-height:130px;overflow:auto}
+</style>
 </head>
 <body>
 <header><h1>クレジットカード利用履歴</h1></header>
-
 <main class="wrap">
   <div class="monthbar">
-    <button id="prevMonth" class="iconbtn" aria-label="前月">‹</button>
+    <button id="prevMonth" class="iconbtn">‹</button>
     <div id="monthTitle" class="monthtitle"></div>
-    <button id="nextMonth" class="iconbtn" aria-label="翌月">›</button>
+    <button id="nextMonth" class="iconbtn">›</button>
   </div>
-
   <section class="summary">
     <div class="label">今月の利用額</div>
     <div id="monthTotal" class="total">¥0</div>
     <div id="monthCount" class="count">0件</div>
   </section>
-
   <section class="table-card">
     <div class="thead"><div>日付</div><div>利用店</div><div class="amount">金額</div></div>
     <div id="rows"></div>
   </section>
 </main>
-
 <div class="actions">
   <button id="scanBtn" class="btn primary">📷 レシート撮影</button>
   <button id="manualBtn" class="btn secondary">✏️ 手動入力</button>
 </div>
 
-<input id="receiptInput" class="hidden" type="file" accept="image/*" capture="environment" />
+<input id="receiptInput" class="hidden" type="file" accept="image/*" capture="environment">
 
 <dialog id="entryDialog">
-  <form class="modal" id="entryForm">
+  <form id="entryForm" class="modal">
     <h2 id="entryTitle">手動入力</h2>
-    <img id="receiptPreview" class="preview hidden" alt="レシート画像" />
+    <img id="receiptPreview" class="preview hidden" alt="レシート画像">
     <div id="ocrBox" class="hidden">
-      <div id="ocrStatus" class="ocr-status">読み取り中...</div>
+      <div id="ocrStatus" class="ocr-status">読み取り中…</div>
       <div class="progress"><div id="ocrProgress"></div></div>
     </div>
 
-    <label for="dateInput">日付</label>
-    <input id="dateInput" type="date" required />
+    <label>日付</label>
+    <input id="dateInput" type="date" required>
 
-    <label for="merchantInput">利用店</label>
-    <input id="merchantInput" type="text" placeholder="例：ロイヤルホスト" required />
+    <label>利用店</label>
+    <input id="merchantInput" type="text" required>
 
-    <label for="amountInput">金額</label>
-    <input id="amountInput" type="number" min="1" inputmode="numeric" placeholder="例：3280" required />
+    <label>金額</label>
+    <input id="amountInput" type="number" min="1" inputmode="numeric" required>
 
-    <p id="ocrHint" class="small hidden">OCRの結果は誤ることがあります。保存前に内容を確認してください。</p>
+    <p id="ocrHint" class="small hidden">OCR結果は必ず保存前に確認してください。</p>
+    <div id="debugBox" class="debug hidden"></div>
 
     <div class="modal-actions">
       <button type="button" id="deleteBtn" class="btn danger hidden">削除</button>
@@ -132,735 +92,397 @@
 </dialog>
 
 <script>
-const KEY = 'credit-card-history-v2';
-const OLD_KEY = 'credit-card-history-v1';
+const DATA_KEY='credit-card-history-v3';
+const LEARN_KEY='credit-card-history-merchant-learning-v3';
 
-function loadItems(){
-  let raw = localStorage.getItem(KEY);
-  if(!raw) raw = localStorage.getItem(OLD_KEY);
+const $=s=>document.querySelector(s);
+let items=loadJSON(DATA_KEY,[]);
+let current=new Date(); current.setDate(1);
+let editingId=null;
+let pendingMerchantSignature='';
+
+function loadJSON(key,fallback){
   try{
-    const parsed = JSON.parse(raw || '[]');
-    // 旧版の巨大なレシート画像を除去して、履歴だけを移行する。
-    return Array.isArray(parsed) ? parsed.map(({image, ...x}) => x) : [];
-  }catch{
-    return [];
+    const v=JSON.parse(localStorage.getItem(key)||'null');
+    return v ?? fallback;
+  }catch{return fallback}
+}
+function saveJSON(key,value){
+  localStorage.setItem(key,JSON.stringify(value));
+}
+function migrateOld(){
+  if(items.length)return;
+  for(const key of ['credit-card-history-v2','credit-card-history-v1']){
+    const old=loadJSON(key,[]);
+    if(Array.isArray(old)&&old.length){
+      items=old.map(({image,...x})=>x);
+      try{saveJSON(DATA_KEY,items)}catch{}
+      break;
+    }
   }
 }
+migrateOld();
 
-let items = loadItems();
-let current = new Date();
-current.setDate(1);
-let editingId = null;
-let pendingImageData = null; // プレビュー専用。保存しない。
-let pendingMerchantFingerprint = '';
-const MERCHANT_KEY = 'credit-card-history-merchant-learning-v2';
-
-function loadMerchantLearning(){
-  try{
-    const v=JSON.parse(localStorage.getItem(MERCHANT_KEY)||'[]');
-    return Array.isArray(v)?v:[];
-  }catch{return [];}
-}
-let merchantLearning = loadMerchantLearning();
-
-function saveMerchantLearning(){
-  try{localStorage.setItem(MERCHANT_KEY,JSON.stringify(merchantLearning.slice(-100)));}catch{}
-}
-
-const $ = s => document.querySelector(s);
-const rows = $('#rows');
-
-function saveAll(){
-  try{
-    localStorage.setItem(KEY, JSON.stringify(items.map(({image, ...x}) => x)));
-    localStorage.removeItem(OLD_KEY);
-    return true;
-  }catch(err){
-    console.error('保存失敗', err);
-    alert('保存に失敗しました。Safariの保存容量が不足している可能性があります。');
-    return false;
-  }
-}
+let merchantLearning=loadJSON(LEARN_KEY,[]);
+if(!Array.isArray(merchantLearning)) merchantLearning=[];
 
 function monthKey(d){
-  const x = new Date(d);
+  const x=new Date(d);
   return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`;
 }
-function fmtYen(n){ return new Intl.NumberFormat('ja-JP',{style:'currency',currency:'JPY',maximumFractionDigits:0}).format(n||0); }
-function fmtDate(d){
-  const x = new Date(d+'T00:00:00');
-  return `${x.getMonth()+1}/${x.getDate()}`;
-}
+function fmtYen(n){return new Intl.NumberFormat('ja-JP',{style:'currency',currency:'JPY',maximumFractionDigits:0}).format(n||0)}
+function fmtDate(s){const d=new Date(s+'T00:00:00');return `${d.getMonth()+1}/${d.getDate()}`}
+function isoToday(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+
 function render(){
-  $('#monthTitle').textContent = `${current.getFullYear()}年${current.getMonth()+1}月`;
-  const key = monthKey(current);
-  const list = items.filter(x => x.date.startsWith(key)).sort((a,b)=>b.date.localeCompare(a.date));
-  const total = list.reduce((s,x)=>s+Number(x.amount||0),0);
-  $('#monthTotal').textContent = fmtYen(total);
-  $('#monthCount').textContent = `${list.length}件`;
-  rows.innerHTML = '';
-  if(!list.length){
-    rows.innerHTML = `<div class="empty">利用履歴がありません</div>`;
-    return;
-  }
+  $('#monthTitle').textContent=`${current.getFullYear()}年${current.getMonth()+1}月`;
+  const key=monthKey(current);
+  const list=items.filter(x=>x.date?.startsWith(key)).sort((a,b)=>b.date.localeCompare(a.date));
+  $('#monthTotal').textContent=fmtYen(list.reduce((s,x)=>s+Number(x.amount||0),0));
+  $('#monthCount').textContent=`${list.length}件`;
+  const rows=$('#rows'); rows.innerHTML='';
+  if(!list.length){rows.innerHTML='<div class="empty">利用履歴がありません</div>';return}
   for(const item of list){
-    const div = document.createElement('div');
-    div.className='row';
-    div.innerHTML = `<button data-id="${item.id}">
-      <div>${fmtDate(item.date)}</div>
-      <div>${escapeHtml(item.merchant)}</div>
-      <div class="amount">${fmtYen(item.amount)}</div>
-    </button>`;
-    div.querySelector('button').addEventListener('click',()=>openEdit(item.id));
+    const div=document.createElement('div'); div.className='row';
+    div.innerHTML=`<button data-id="${item.id}"><div>${fmtDate(item.date)}</div><div>${escapeHtml(item.merchant)}</div><div class="amount">${fmtYen(item.amount)}</div></button>`;
+    div.querySelector('button').onclick=()=>openEdit(item.id);
     rows.appendChild(div);
   }
 }
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[c]));
-}
-function isoToday(){
-  const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+function resetDialog(){
+  $('#receiptPreview').classList.add('hidden');
+  $('#ocrBox').classList.add('hidden');
+  $('#ocrHint').classList.add('hidden');
+  $('#debugBox').classList.add('hidden');
+  $('#debugBox').textContent='';
+  pendingMerchantSignature='';
 }
 function openManual(){
-  editingId=null; pendingImageData=null; pendingMerchantFingerprint='';
+  editingId=null; resetDialog();
   $('#entryTitle').textContent='手動入力';
   $('#dateInput').value=isoToday(); $('#merchantInput').value=''; $('#amountInput').value='';
-  $('#deleteBtn').classList.add('hidden'); $('#receiptPreview').classList.add('hidden');
-  $('#ocrBox').classList.add('hidden'); $('#ocrHint').classList.add('hidden');
+  $('#deleteBtn').classList.add('hidden');
   $('#entryDialog').showModal();
 }
 function openEdit(id){
   const x=items.find(i=>i.id===id); if(!x)return;
-  editingId=id; pendingImageData=null; pendingMerchantFingerprint='';
+  editingId=id; resetDialog();
   $('#entryTitle').textContent='利用履歴を編集';
   $('#dateInput').value=x.date; $('#merchantInput').value=x.merchant; $('#amountInput').value=x.amount;
   $('#deleteBtn').classList.remove('hidden');
-  $('#receiptPreview').classList.add('hidden');
-  $('#ocrBox').classList.add('hidden'); $('#ocrHint').classList.add('hidden');
   $('#entryDialog').showModal();
 }
+
 $('#entryForm').addEventListener('submit',e=>{
   e.preventDefault();
+  const date=$('#dateInput').value;
+  const merchant=$('#merchantInput').value.trim();
+  const amount=Number($('#amountInput').value);
+  if(!date||!merchant||!Number.isFinite(amount)||amount<=0){alert('日付・利用店・金額を確認してください。');return}
 
-  const date = $('#dateInput').value;
-  const merchant = $('#merchantInput').value.trim();
-  const amount = Number(String($('#amountInput').value).replace(/,/g,''));
+  const record={id:editingId||(crypto.randomUUID?crypto.randomUUID():String(Date.now())),date,merchant,amount};
+  const before=items.slice();
+  if(editingId)items=items.map(x=>x.id===editingId?record:x); else items.push(record);
 
-  if(!date){
-    alert('日付を確認してください。');
-    return;
-  }
-  if(!merchant){
-    alert('利用店を入力してください。');
-    return;
-  }
-  if(!Number.isFinite(amount) || amount <= 0){
-    alert('金額を確認してください。');
-    return;
-  }
-
-  const data={
-    id:editingId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
-    date,
-    merchant,
-    amount
-  };
-
-  const before = items.slice();
-  if(editingId) items=items.map(x=>x.id===editingId?data:x);
-  else items.push(data);
-
-  if(saveAll()){
-    if(pendingMerchantFingerprint && merchant){
-      // 同じ特徴は更新、違う特徴は追加。最大100件だけ保持。
-      const idx=merchantLearning.findIndex(x=>x && x.signature===pendingMerchantFingerprint);
-      const record={signature:pendingMerchantFingerprint,merchant,updatedAt:Date.now()};
-      if(idx>=0) merchantLearning[idx]=record;
-      else merchantLearning.push(record);
-      saveMerchantLearning();
+  try{
+    saveJSON(DATA_KEY,items);
+    if(pendingMerchantSignature){
+      const idx=merchantLearning.findIndex(x=>x.signature===pendingMerchantSignature);
+      const learned={signature:pendingMerchantSignature,merchant,updatedAt:Date.now()};
+      if(idx>=0)merchantLearning[idx]=learned;else merchantLearning.push(learned);
+      merchantLearning=merchantLearning.slice(-100);
+      saveJSON(LEARN_KEY,merchantLearning);
     }
-    pendingMerchantFingerprint = '';
     $('#entryDialog').close();
-    const d = new Date(date + 'T00:00:00');
-    current = new Date(d.getFullYear(), d.getMonth(), 1);
-    render();
-  }else{
-    items = before;
+    const d=new Date(date+'T00:00:00');current=new Date(d.getFullYear(),d.getMonth(),1);render();
+  }catch(err){
+    items=before; alert('保存に失敗しました。');
   }
 });
 $('#cancelBtn').onclick=()=>$('#entryDialog').close();
 $('#deleteBtn').onclick=()=>{
   if(!editingId)return;
   if(confirm('この利用履歴を削除しますか？')){
-    items=items.filter(x=>x.id!==editingId); saveAll(); $('#entryDialog').close(); render();
+    items=items.filter(x=>x.id!==editingId);
+    saveJSON(DATA_KEY,items); $('#entryDialog').close(); render();
   }
 };
 $('#manualBtn').onclick=openManual;
 $('#prevMonth').onclick=()=>{current.setMonth(current.getMonth()-1);render()};
 $('#nextMonth').onclick=()=>{current.setMonth(current.getMonth()+1);render()};
-
 $('#scanBtn').onclick=()=>$('#receiptInput').click();
-$('#receiptInput').addEventListener('change', async e=>{
-  const file=e.target.files?.[0]; e.target.value=''; if(!file)return;
-  editingId=null;
-  pendingImageData=await fileToDataURL(file);
 
-  $('#entryTitle').textContent='読み取り確認';
-  $('#receiptPreview').src=pendingImageData; $('#receiptPreview').classList.remove('hidden');
-  $('#dateInput').value=''; $('#merchantInput').value=''; $('#amountInput').value='';
-  $('#deleteBtn').classList.add('hidden');
-  $('#ocrHint').classList.remove('hidden');
-  $('#ocrBox').classList.remove('hidden');
-  $('#ocrProgress').style.width='0%';
-  $('#entryDialog').showModal();
-
-  try{
-    $('#ocrStatus').textContent='レシート画像を補正中…';
-    const prepared = await prepareReceiptCanvases(file);
-
-    // 1) 全体：日付と予備情報
-    $('#ocrStatus').textContent='全体を読み取り中…';
-    const full = await recognizeReceipt(prepared.full, 0, 45);
-
-    // 2) 上部：店名専用
-    $('#ocrStatus').textContent='店名を読み取り中…';
-    const top = await recognizeReceipt(prepared.top, 45, 72);
-
-    // 3) 下部：合計金額専用
-    $('#ocrStatus').textContent='合計金額を読み取り中…';
-    const bottom = await recognizeReceipt(prepared.bottom, 72, 100);
-
-    const date = extractReceiptDate(full.text);
-    const merchantInfo = chooseMerchant(top.words, top.text, full.words, full.text);
-    pendingMerchantFingerprint = merchantInfo.fingerprint || '';
-    const merchant = merchantInfo.merchant || '';
-
-    const amount =
-      amountFromPositionedOCR(bottom.words) ||
-      likelyAmountFromTotal(normalizeOCRText(bottom.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) ||
-      likelyAmountFromTotal(normalizeOCRText(full.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) ||
-      fallbackAmount(normalizeOCRText(bottom.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
-
-    $('#dateInput').value=date || isoToday();
-    $('#merchantInput').value=merchant || '';
-    $('#amountInput').value=amount || '';
-
-    const missing=[];
-    if(!merchant) missing.push('店名');
-    if(!amount) missing.push('合計金額');
-    $('#ocrStatus').textContent = missing.length
-      ? `読み取り完了（${missing.join('・')}を確認してください）`
-      : '読み取り完了';
-
-    console.log('OCR v2.2', {
-      fullText: full.text,
-      topText: top.text,
-      bottomText: bottom.text,
-      merchant,
-      amount,
-      date
-    });
-  }catch(err){
-    console.error(err);
-    $('#ocrStatus').textContent='読み取りに失敗しました。手動で入力してください。';
-    $('#dateInput').value=isoToday();
-  }
-});
-
-function fileToDataURL(file){
-  return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)});
+function normalizeText(s){
+  return String(s||'')
+    .replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+    .replace(/[，､]/g,',')
+    .replace(/[￥]/g,'¥')
+    .replace(/\u3000/g,' ');
 }
-
-async function prepareReceiptCanvases(file){
-  const url=URL.createObjectURL(file);
-  try{
-    const img=await new Promise((resolve,reject)=>{
-      const i=new Image();
-      i.onload=()=>resolve(i);
-      i.onerror=reject;
-      i.src=url;
-    });
-
-    // OCR精度と処理速度のバランス。文字が小さいレシートでも1800px程度確保。
-    const maxWidth=1800;
-    const scale=Math.min(1,maxWidth/img.naturalWidth);
-    const w=Math.max(1,Math.round(img.naturalWidth*scale));
-    const h=Math.max(1,Math.round(img.naturalHeight*scale));
-
-    const source=document.createElement('canvas');
-    source.width=w; source.height=h;
-    const sctx=source.getContext('2d',{willReadFrequently:true});
-    sctx.drawImage(img,0,0,w,h);
-
-    // グレースケール＋コントラスト強調
-    const imageData=sctx.getImageData(0,0,w,h);
-    const d=imageData.data;
-    for(let i=0;i<d.length;i+=4){
-      const gray=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-      let v=(gray-128)*1.7+128;
-      v=Math.max(0,Math.min(255,v));
-      if(v>215)v=255;
-      if(v<45)v=0;
-      d[i]=d[i+1]=d[i+2]=v;
-    }
-    sctx.putImageData(imageData,0,0);
-
-    function crop(yStartRatio,yEndRatio){
-      const y0=Math.floor(h*yStartRatio);
-      const y1=Math.floor(h*yEndRatio);
-      const ch=Math.max(1,y1-y0);
-      const c=document.createElement('canvas');
-      c.width=w; c.height=ch;
-      c.getContext('2d').drawImage(source,0,y0,w,ch,0,0,w,ch);
-      return c;
-    }
-
-    return {
-      full:source,
-      // 店名は通常レシート上部。少し広めに35%確保。
-      top:crop(0,0.35),
-      // 合計は下半分にあることが多い。45%以降を対象。
-      bottom:crop(0.45,1)
-    };
-  }finally{
-    URL.revokeObjectURL(url);
-  }
+function bboxOf(w){
+  const b=w?.bbox||{};
+  return {x0:+(b.x0||0),y0:+(b.y0||0),x1:+(b.x1||0),y1:+(b.y1||0)};
 }
+function wordText(w){return normalizeText(w?.text||'').trim()}
 
-async function recognizeReceipt(image,progressStart,progressEnd){
-  const result=await Tesseract.recognize(image,'jpn+eng',{
-    logger:m=>{
-      if(m.status==='recognizing text'){
-        const raw=Math.max(0,Math.min(1,m.progress||0));
-        const p=Math.round(progressStart+(progressEnd-progressStart)*raw);
-        $('#ocrProgress').style.width=p+'%';
-      }
-    }
-  });
-
-  const data=result?.data||{};
-  // Tesseract.jsの版によってwordsの有無が違うため、無ければblocks/linesから回収。
-  let words=Array.isArray(data.words)?data.words:[];
-  if(!words.length && Array.isArray(data.blocks)){
-    for(const block of data.blocks){
-      for(const para of (block.paragraphs||[])){
-        for(const line of (para.lines||[])){
-          for(const word of (line.words||[])) words.push(word);
-        }
-      }
-    }
-  }
-
-  return {text:data.text||'',words};
+function collectWords(data){
+  if(Array.isArray(data.words)&&data.words.length)return data.words;
+  const out=[];
+  for(const block of (data.blocks||[]))
+    for(const para of (block.paragraphs||[]))
+      for(const line of (para.lines||[]))
+        for(const word of (line.words||[]))out.push(word);
+  return out;
 }
-
-function wordText(w){
-  return normalizeOCRText(w?.text||w?.symbols?.map(s=>s.text).join('')||'').trim();
-}
-function wordBox(w){
-  const b=w?.bbox||w?.boundingBox||{};
-  return {
-    x0:Number(b.x0 ?? b.left ?? 0),
-    y0:Number(b.y0 ?? b.top ?? 0),
-    x1:Number(b.x1 ?? b.right ?? 0),
-    y1:Number(b.y1 ?? b.bottom ?? 0)
-  };
-}
-function isMoneyWord(s){
-  const t=normalizeOCRText(s).replace(/\s/g,'');
-  return /^(?:¥)?\d{1,3}(?:,\d{3})+(?:円)?$/.test(t) ||
-         /^(?:¥)?\d{2,8}(?:円)?$/.test(t);
-}
-function moneyFromWord(s){
-  const m=normalizeOCRText(s).replace(/\s/g,'').match(/(?:¥)?(\d{1,3}(?:,\d{3})+|\d{2,8})(?:円)?/);
-  if(!m)return null;
-  const n=Number(m[1].replace(/,/g,''));
-  return Number.isFinite(n)&&n>=10&&n<100000000?n:null;
-}
-
-function groupWordsIntoLines(words){
-  const cleaned=(words||[])
-    .map(w=>({text:wordText(w),box:wordBox(w),confidence:Number(w.confidence??w.conf??0)}))
-    .filter(w=>w.text && w.box.y1>w.box.y0);
-
-  cleaned.sort((a,b)=>a.box.y0-b.box.y0 || a.box.x0-b.box.x0);
+function groupLines(words){
+  const ws=words.map(w=>({text:wordText(w),box:bboxOf(w),conf:+(w.confidence||0)}))
+    .filter(w=>w.text&&w.box.y1>w.box.y0)
+    .sort((a,b)=>a.box.y0-b.box.y0||a.box.x0-b.box.x0);
   const lines=[];
-
-  for(const w of cleaned){
-    const cy=(w.box.y0+w.box.y1)/2;
-    const h=Math.max(1,w.box.y1-w.box.y0);
-    let best=null,bestDist=Infinity;
-    for(const line of lines){
-      const dist=Math.abs(cy-line.cy);
-      if(dist < Math.max(h,line.avgHeight)*0.65 && dist<bestDist){
-        best=line; bestDist=dist;
-      }
+  for(const w of ws){
+    const cy=(w.box.y0+w.box.y1)/2, h=Math.max(1,w.box.y1-w.box.y0);
+    let best=null,dist=1e9;
+    for(const l of lines){
+      const d=Math.abs(cy-l.cy);
+      if(d<Math.max(h,l.avgH)*0.62&&d<dist){best=l;dist=d}
     }
-    if(!best){
-      best={words:[],cy,avgHeight:h};
-      lines.push(best);
-    }
+    if(!best){best={words:[],cy,avgH:h};lines.push(best)}
     best.words.push(w);
     const n=best.words.length;
-    best.cy=((best.cy*(n-1))+cy)/n;
-    best.avgHeight=((best.avgHeight*(n-1))+h)/n;
+    best.cy=(best.cy*(n-1)+cy)/n;
+    best.avgH=(best.avgH*(n-1)+h)/n;
   }
-
-  for(const line of lines) line.words.sort((a,b)=>a.box.x0-b.box.x0);
+  for(const l of lines)l.words.sort((a,b)=>a.box.x0-b.box.x0);
   return lines.sort((a,b)=>a.cy-b.cy);
 }
 
-function amountFromPositionedOCR(words){
-  const lines=groupWordsIntoLines(words);
-  if(!lines.length)return null;
-
-  const excluded=/小計|消費税|内税|外税|税率|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
-  const totalish=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|クレジット支払|カード支払/;
-
-  const heights=[];
-  let pageMaxX=0;
-  for(const line of lines){
-    for(const w of line.words){
-      const h=Math.max(1,w.box.y1-w.box.y0);
-      heights.push(h);
-      pageMaxX=Math.max(pageMaxX,w.box.x1);
+async function preprocess(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
+    const maxW=1800,scale=Math.min(1,maxW/img.naturalWidth);
+    const w=Math.round(img.naturalWidth*scale),h=Math.round(img.naturalHeight*scale);
+    const c=document.createElement('canvas');c.width=w;c.height=h;
+    const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
+    const im=ctx.getImageData(0,0,w,h),d=im.data;
+    for(let i=0;i<d.length;i+=4){
+      const g=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+      let v=(g-128)*1.45+128; v=Math.max(0,Math.min(255,v));
+      if(v>225)v=255;
+      d[i]=d[i+1]=d[i+2]=v;
     }
-  }
-  heights.sort((a,b)=>a-b);
-  const medianHeight=heights.length ? heights[Math.floor(heights.length/2)] : 1;
-
-  const candidates=[];
-
-  function addCandidate(n,word,line,lineIndex,baseScore,reason){
-    if(!n || n<10 || n>10000000)return;
-    const h=Math.max(1,word.box.y1-word.box.y0);
-    const heightRatio=h/Math.max(1,medianHeight);
-    const lineRatio=(line.avgHeight||h)/Math.max(1,medianHeight);
-    const rightRatio=pageMaxX ? word.box.x1/pageMaxX : 0;
-
-    let score=baseScore;
-    // 大きな文字ほど最終合計らしい
-    if(heightRatio>=1.15) score += Math.min(32,(heightRatio-1)*28);
-    if(lineRatio>=1.15) score += Math.min(22,(lineRatio-1)*22);
-    // レシートの右側に寄った金額を優先
-    score += Math.max(0,(rightRatio-0.55)*24);
-    if(/[¥￥円]/.test(word.text)) score+=10;
-    if(/,\d{3}/.test(word.text)) score+=3;
-
-    candidates.push({n,score,heightRatio,lineRatio,rightRatio,lineIndex,reason,text:word.text});
-  }
-
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    const rawLineText=line.words.map(w=>w.text).join(' ');
-    const joined=line.words.map(w=>w.text).join('').replace(/\s/g,'');
-    if(excluded.test(joined))continue;
-
-    const hasTotalLabel=totalish.test(joined);
-
-    // 安全な補助判定:
-    // 「合計 1 , 234」「合計 1 234」のようなOCR分割でも、
-    // 行全体のテキストから金額を再構成して候補にする。
-    if(hasTotalLabel){
-      const reconstructed=extractMoneyValues(rawLineText).filter(n=>n>=10);
-      if(reconstructed.length){
-        const fakeWord={
-          text:String(reconstructed[reconstructed.length-1]),
-          box:{
-            x0:line.words[0]?.box.x0||0,
-            y0:line.words[0]?.box.y0||0,
-            x1:line.words[line.words.length-1]?.box.x1||pageMaxX,
-            y1:line.words[line.words.length-1]?.box.y1||0
-          }
-        };
-        addCandidate(
-          reconstructed[reconstructed.length-1],
-          fakeWord,
-          line,
-          i,
-          160,
-          'total-line-reconstructed'
-        );
-      }
-    }
-
-    // 「合計」の行なら、その右側の数字を圧倒的に優先
-    if(hasTotalLabel){
-      let labelEnd=0;
-      for(let k=0;k<line.words.length;k++){
-        const upto=line.words.slice(0,k+1).map(w=>w.text).join('').replace(/\s/g,'');
-        if(totalish.test(upto)) labelEnd=Math.max(labelEnd,line.words[k].box.x1);
-      }
-      for(const w of line.words){
-        const n=moneyFromWord(w.text);
-        if(!n)continue;
-        const isRight = w.box.x0 >= labelEnd-4;
-        addCandidate(n,w,line,i,isRight?150:90,isRight?'total-same-line-right':'total-same-line');
-      }
-
-      // 合計ラベルの直下1〜2行。文字が大きければさらに加点。
-      for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
-        const next=lines[j];
-        const nextJoined=next.words.map(w=>w.text).join('').replace(/\s/g,'');
-        if(excluded.test(nextJoined))continue;
-        for(const w of next.words){
-          const n=moneyFromWord(w.text);
-          if(n)addCandidate(n,w,next,j,j===i+1?105:85,'below-total');
-        }
-      }
-    }
-
-    // 合計ラベルがOCRで壊れたケース用：
-    // 大きな数字・右寄せ・下部という特徴で候補化。
-    for(const w of line.words){
-      const n=moneyFromWord(w.text);
-      if(!n)continue;
-      const h=Math.max(1,w.box.y1-w.box.y0);
-      const ratio=h/Math.max(1,medianHeight);
-      const rightRatio=pageMaxX?w.box.x1/pageMaxX:0;
-      if(ratio>=1.22 || rightRatio>=0.78){
-        let base=24;
-        if(ratio>=1.35)base+=18;
-        if(rightRatio>=0.86)base+=12;
-        // 下部OCRなので後ろの行ほど最終合計らしい
-        base += (i/Math.max(1,lines.length-1))*14;
-        addCandidate(n,w,line,i,base,'large-or-right');
-      }
-    }
-  }
-
-  if(!candidates.length)return null;
-
-  // 同じ金額が複数箇所に出る（合計とカード支払など）場合は強く加点。
-  const freq=new Map();
-  for(const c of candidates)freq.set(c.n,(freq.get(c.n)||0)+1);
-  for(const c of candidates){
-    const f=freq.get(c.n)||1;
-    if(f>=2)c.score+=12*(f-1);
-  }
-
-  candidates.sort((a,b)=>b.score-a.score || b.heightRatio-a.heightRatio || b.rightRatio-a.rightRatio);
-
-  console.log('amount candidates',candidates.slice(0,8));
-  return candidates[0]?.n || null;
+    ctx.putImageData(im,0,0);return c;
+  }finally{URL.revokeObjectURL(url)}
 }
 
-function merchantFromPositionedOCR(words,fallbackText){
-  const lines=groupWordsIntoLines(words);
-  const blacklist=/TEL|電話|FAX|住所|〒|レシート|領収|担当|日時|日付|合計|小計|消費税|税率|現金|釣銭|お預り|クレジット|カード|No\.?|番号|登録番号|営業時間|取引|商品|単価|数量|税込|税抜|ありがとう|毎度|http|www/i;
-  let best={text:'',score:-999};
-
-  lines.forEach((line,idx)=>{
-    const txt=line.words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
-    if(txt.length<2||txt.length>50||blacklist.test(txt))return;
-
-    const letters=(txt.match(/[A-Za-z\u3040-\u30ff\u3400-\u9fff]/g)||[]).length;
-    const digits=(txt.match(/\d/g)||[]).length;
-    if(letters<2 || digits>Math.max(3,txt.length*0.35))return;
-
-    const avgHeight=line.avgHeight||0;
-    const avgConf=line.words.reduce((s,w)=>s+(w.confidence||0),0)/Math.max(1,line.words.length);
-
-    // 上部にあり、文字が大きく、信頼度が高いほど店名らしい。
-    let score=40-idx*2;
-    score += avgHeight*0.55;
-    score += avgConf*0.08;
-    score += Math.min(10,letters*0.5);
-    if(/店$|支店$|本店$|STORE|SHOP|CAFE|MART|DINER|HOTEL/i.test(txt))score+=10;
-    if(/株式会社|有限会社|合同会社/.test(txt))score-=4;
-    if(/[都道府県市区町村]\S*\d/.test(txt))score-=12;
-
-    if(score>best.score)best={text:txt,score};
-  });
-
-  if(best.text)return best.text;
-  const linesText=normalizeOCRText(fallbackText).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-  return likelyMerchant(linesText);
-}
-
-function extractReceiptDate(text){
-  const normalized=normalizeOCRText(text);
-  const lines=normalized.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-  const patterns=[
-    /(20\d{2})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})\s*日?/,
+function parseDate(text){
+  const t=normalizeText(text);
+  const pats=[
+    /(20\d{2})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/,
     /(\d{2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/
   ];
-  for(const line of lines){
-    for(const p of patterns){
-      const m=line.match(p);
-      if(!m)continue;
-      let y=Number(m[1]); if(y<100)y+=2000;
-      const mo=Number(m[2]),day=Number(m[3]);
-      if(mo>=1&&mo<=12&&day>=1&&day<=31){
-        return `${y}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-      }
-    }
+  for(const p of pats){
+    const m=t.match(p); if(!m)continue;
+    let y=+m[1];if(y<100)y+=2000;const mo=+m[2],d=+m[3];
+    if(mo>=1&&mo<=12&&d>=1&&d<=31)return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   }
   return '';
 }
 
-function normalizeOCRText(s){
-  return String(s||'')
-    .replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
-    .replace(/，/g,',')
-    .replace(/．/g,'.')
-    .replace(/[￥¥]/g,'¥')
-    .replace(/[：]/g,':')
-    .replace(/\u3000/g,' ')
-    .replace(/[|｜]/g,'I');
+function moneyNumber(s){
+  let t=normalizeText(s).replace(/\s/g,'').replace(/[¥￥円]/g,'');
+  t=t.replace(/[，]/g,',').replace(/\.00$/,'');
+  if(!/^\d[\d,]*$/.test(t))return null;
+  const n=Number(t.replace(/,/g,''));
+  return Number.isFinite(n)&&n>=10&&n<10000000?n:null;
 }
-
-function extractMoneyValues(line){
-  let normalized=normalizeOCRText(line);
-
-  // 「1 , 234」「1, 234」「1 ,234」を 1,234 に戻す
-  normalized=normalized.replace(/(\d{1,3})\s*[,，]\s*(\d{3})(?!\d)/g,'$1,$2');
-
-  // 「1 234」のように千の位で分離されたOCRも復元する。
-  // ただし日付や時刻に誤適用しにくいよう、1〜3桁 + 空白 + 3桁だけを対象。
-  normalized=normalized.replace(/(^|[^\d])(\d{1,3})\s+(\d{3})(?!\d)/g,'$1$2$3');
-
-  // さらに 12 345 678 のような複数千区切りにも最大2回対応
-  normalized=normalized.replace(/(^|[^\d])(\d{1,3})\s+(\d{3})(?!\d)/g,'$1$2$3');
-
-  const values=[];
-  const re=/(?:¥\s*)?(\d{1,3}(?:,\d{3})+|\d{2,8})(?:\.\d{1,2})?/g;
-  for(const m of normalized.matchAll(re)){
-    const n=Number(m[1].replace(/,/g,''));
-    if(Number.isFinite(n)&&n>0&&n<100000000) values.push(n);
-  }
-  return values;
-}
-function likelyAmountFromTotal(lines){
-  const strong=[
-    /総\s*合\s*計/i,
-    /合\s*計/i,
-    /お\s*支\s*払(?:い)?(?:額)?/i,
-    /ご\s*請\s*求(?:額)?/i,
-    /請\s*求\s*額/i,
-    /取\s*引\s*金\s*額/i,
-    /クレジット\s*(?:支払|支払い|利用)?/i,
-    /支\s*払\s*額/i
-  ];
-  const excluded=/小\s*計|消費税|内税|外税|税率|お釣|釣銭|預り|預かり/i;
-
-  for(const pattern of strong){
-    for(let i=0;i<lines.length;i++){
-      const line=lines[i];
-      if(!pattern.test(line)||excluded.test(line)) continue;
-
-      // 「合計 3,280」のように同じ行にあれば、その最後の金額を採用
-      let nums=extractMoneyValues(line).filter(n=>n>=10);
-      if(nums.length) return nums[nums.length-1];
-
-      // OCRで「合計」と「3,280」が別行になっても拾う
-      for(let j=1;j<=2&&i+j<lines.length;j++){
-        if(excluded.test(lines[i+j])) continue;
-        nums=extractMoneyValues(lines[i+j]).filter(n=>n>=10);
-        if(nums.length) return nums[0];
+function moneyPieces(line){
+  const ws=line.words;
+  const res=[];
+  // single word
+  for(const w of ws){const n=moneyNumber(w.text);if(n)res.push({n,text:w.text,x0:w.box.x0,x1:w.box.x1,h:w.box.y1-w.box.y0,parts:1})}
+  // join nearby pieces up to 4 words: 1 , 234 / 1 234 / ¥ 1,234
+  for(let i=0;i<ws.length;i++){
+    let txt='',x0=ws[i].box.x0,x1=ws[i].box.x1,h=0;
+    for(let j=i;j<Math.min(ws.length,i+4);j++){
+      if(j>i){
+        const gap=ws[j].box.x0-ws[j-1].box.x1;
+        const ph=ws[j-1].box.y1-ws[j-1].box.y0,ch=ws[j].box.y1-ws[j].box.y0;
+        if(gap>Math.max(14,(ph+ch)/2*1.05))break;
       }
+      const piece=normalizeText(ws[j].text).replace(/\s/g,'');
+      if(!/^[¥￥円\d,，.・]+$/.test(piece))break;
+      txt+=piece;x1=ws[j].box.x1;h=Math.max(h,ws[j].box.y1-ws[j].box.y0);
+      let norm=txt.replace(/[，・]/g,',').replace(/\s/g,'');
+      // If OCR splits "1" and "234" without comma, concatenate.
+      const n=moneyNumber(norm);
+      if(n&&j>i)res.push({n,text:txt,x0,x1,h,parts:j-i+1});
     }
   }
-
-  // 「計」だけ認識できた場合の弱い補助
-  for(let i=0;i<lines.length;i++){
-    if(!/(?:^|\s)計\s*[:：]?\s*$/i.test(lines[i])||excluded.test(lines[i])) continue;
-    const nums=extractMoneyValues([lines[i],lines[i+1]||''].join(' ')).filter(n=>n>=10);
-    if(nums.length) return nums[nums.length-1];
-  }
-  return null;
+  return res;
 }
 
-function fallbackAmount(lines){
-  const candidates=[];
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    if(/TEL|電話|〒|登録番号|No\.?|日時|時刻/i.test(line)) continue;
-    if(/\b20\d{2}[\/\-.年]/.test(line)) continue;
-    if(/\b\d{1,2}:\d{2}\b/.test(line)) continue;
-
-    for(const n of extractMoneyValues(line)){
-      if(n>=10&&n<=3000000){
-        let score=0;
-        if(/[¥￥]/.test(line)) score+=2;
-        if(/円/.test(line)) score+=2;
-        if(/現金|カード|クレジット|支払/i.test(line)) score+=2;
-        if(/小計|税|釣銭|預り/i.test(line)) score-=5;
-        candidates.push({n,score});
+function parseAmount(lines){
+  const excl=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
+  const total=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払/;
+  const allH=[];let maxX=1;
+  lines.forEach(l=>l.words.forEach(w=>{allH.push(w.box.y1-w.box.y0);maxX=Math.max(maxX,w.box.x1)}));
+  allH.sort((a,b)=>a-b);const med=allH[Math.floor(allH.length/2)]||1;
+  const cands=[];
+  const add=(m,l,i,base,why)=>{
+    const hr=(m.h||l.avgH)/med,rr=m.x1/maxX;
+    let score=base;
+    if(hr>1.15)score+=Math.min(35,(hr-1)*30);
+    if(rr>.72)score+=(rr-.72)*35;
+    if(m.parts>1)score+=12;
+    if(/[¥￥円]/.test(m.text))score+=8;
+    cands.push({...m,score,why,line:i});
+  };
+  lines.forEach((l,i)=>{
+    const raw=l.words.map(w=>w.text).join(' ');
+    const joined=raw.replace(/\s/g,'');
+    if(excl.test(joined))return;
+    const ms=moneyPieces(l);
+    const isTotal=total.test(joined);
+    if(isTotal){
+      let labelEnd=0;
+      l.words.forEach((w,k)=>{
+        const s=l.words.slice(0,k+1).map(x=>x.text).join('').replace(/\s/g,'');
+        if(total.test(s))labelEnd=Math.max(labelEnd,w.box.x1);
+      });
+      ms.forEach(m=>add(m,l,i,m.x0>=labelEnd-5?180:105,'total-line'));
+      for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
+        if(excl.test(lines[j].words.map(w=>w.text).join('')))continue;
+        moneyPieces(lines[j]).forEach(m=>add(m,lines[j],j,j===i+1?115:90,'below-total'));
       }
     }
-  }
-  candidates.sort((a,b)=>(b.score-a.score)||(b.n-a.n));
-  return candidates[0]?.n||'';
-}
-
-function likelyMerchant(lines){
-  const blacklist=/TEL|電話|FAX|住所|〒|レシート|領収|担当|日時|日付|合計|小計|消費税|税率|現金|釣銭|お預り|クレジット|カード|No\.?|番号|登録番号|営業時間|取引|商品|単価|数量|税込|税抜|ありがとう|毎度/i;
-  let best={line:'',score:-999};
-
-  lines.slice(0,16).forEach((raw,idx)=>{
-    const line=normalizeOCRText(raw)
-      .replace(/[=_*#<>]/g,' ')
-      .replace(/\s+/g,' ')
-      .trim();
-
-    if(line.length<2||line.length>45) return;
-    if(blacklist.test(line)) return;
-    if(/^[\d\s\-:\/.,¥]+$/.test(line)) return;
-
-    const digits=(line.match(/\d/g)||[]).length;
-    const letters=(line.match(/[A-Za-z\u3040-\u30ff\u3400-\u9fff]/g)||[]).length;
-    if(letters<2) return;
-    if(digits>Math.max(3,line.length*0.35)) return;
-
-    let score=20-idx;
-    score+=Math.min(10,letters/2);
-    if(/店$|支店$|本店$|STORE|SHOP|CAFE|MART|DINER|HOTEL/i.test(line)) score+=6;
-    if(/株式会社|有限会社|合同会社/.test(line)) score-=2;
-    if(/https?:|www\.|@/.test(line)) score-=8;
-    if(/[都道府県市区町村]\S*\d/.test(line)) score-=8;
-
-    if(score>best.score) best={line,score};
+    ms.forEach(m=>{
+      const hr=(m.h||l.avgH)/med,rr=m.x1/maxX;
+      if(hr>1.25||rr>.82)add(m,l,i,35,'large-or-right');
+    });
   });
-
-  return best.line;
+  if(!cands.length)return '';
+  const freq={};cands.forEach(c=>freq[c.n]=(freq[c.n]||0)+1);
+  cands.forEach(c=>{if(freq[c.n]>1)c.score+=15*(freq[c.n]-1)});
+  cands.sort((a,b)=>b.score-a.score||b.n-a.n);
+  console.log('amount candidates',cands.slice(0,10));
+  return cands[0]?.n||'';
 }
 
-function parseReceipt(text){
-  const normalized=normalizeOCRText(text);
-  const lines=normalized.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+function simplify(s){
+  return normalizeText(s).toUpperCase().replace(/\s+/g,'').replace(/[^\p{L}\p{N}]/gu,'');
+}
+function signature(s){
+  const x=simplify(s);const g=[];
+  for(let i=0;i<x.length-1;i++)g.push(x.slice(i,i+2));
+  return [...new Set(g)].sort().join('|').slice(0,700);
+}
+function sigSim(a,b){
+  const A=new Set(String(a||'').split('|').filter(Boolean)),B=new Set(String(b||'').split('|').filter(Boolean));
+  if(!A.size||!B.size)return 0;let n=0;A.forEach(x=>{if(B.has(x))n++});return n/(A.size+B.size-n);
+}
+const KNOWN=[
+['セブン-イレブン',/セブン.?イレブン|7.?ELEVEN|SEVEN.?ELEVEN/i],
+['ファミリーマート',/ファミリ.?マート|FAMILY.?MART/i],
+['ローソン',/ローソン|LAWSON/i],['イオン',/イオン|AEON/i],['ヤオコー',/ヤオコー|YAOKO/i],
+['ベルク',/ベルク|BELC/i],['マルエツ',/マルエツ|MARUETSU/i],['ライフ',/(?:^|\s)ライフ(?:\s|$)|LIFE/i],
+['マツモトキヨシ',/マツモト.?キヨシ|MATSUMOTO.?KIYOSHI/i],['ウエルシア',/ウエルシア|WELCIA/i],
+['ロイヤルホスト',/ロイヤル.?ホスト|ROYAL.?HOST/i],['ガスト',/ガスト|GUSTO/i],['サイゼリヤ',/サイゼリヤ|SAIZERIYA/i],
+['デニーズ',/デニーズ|DENNY/i],['マクドナルド',/マクドナルド|MCDONALD/i],['スターバックス',/スターバックス|STARBUCKS/i],
+['ドトール',/ドトール|DOUTOR/i],['ユニクロ',/ユニクロ|UNIQLO/i],['ニトリ',/ニトリ|NITORI/i]
+];
 
-  let date='';
-  const datePatterns=[
-    /(20\d{2})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})\s*日?/,
-    /(\d{2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/
-  ];
+function parseMerchant(lines,pageHeight){
+  const blacklist=/TEL|電話|FAX|住所|〒|レシート|領収|担当|日時|日付|合計|小計|消費税|税率|現金|釣銭|お預り|クレジット|カード|番号|登録番号|営業時間|取引|商品|単価|数量|税込|税抜|ありがとう|毎度|http|www/i;
+  const heights=[];lines.forEach(l=>l.words.forEach(w=>heights.push(w.box.y1-w.box.y0)));
+  heights.sort((a,b)=>a-b);const med=heights[Math.floor(heights.length/2)]||1;
+  const cands=[];
+  lines.forEach((l,i)=>{
+    const y=l.cy/(pageHeight||1); if(y>.38)return;
+    const t=l.words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+    if(t.length<2||t.length>60||blacklist.test(t))return;
+    const letters=(t.match(/[A-Za-z\u3040-\u30ff\u3400-\u9fff]/g)||[]).length;
+    const digits=(t.match(/\d/g)||[]).length;
+    if(letters<2||digits>Math.max(3,t.length*.35))return;
+    let score=70-y*90+(l.avgH/med)*20;
+    if(/店$|支店$|本店$|STORE|SHOP|CAFE|MART|DINER|HOTEL/i.test(t))score+=14;
+    if(/[都道府県市区町村]\S*\d/.test(t))score-=20;
+    cands.push({t,score});
+  });
+  cands.sort((a,b)=>b.score-a.score);
+  const context=cands.slice(0,3).map(x=>x.t).join(' ');
+  const sig=signature(context);
 
-  for(const line of lines){
-    for(const p of datePatterns){
-      const m=line.match(p);
-      if(m){
-        let y=Number(m[1]); if(y<100)y+=2000;
-        const mo=Number(m[2]),day=Number(m[3]);
-        if(mo>=1&&mo<=12&&day>=1&&day<=31){
-          date=`${y}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-          break;
+  let learned=null;
+  for(const r of merchantLearning){
+    const sim=sigSim(sig,r.signature);
+    if(sim>=.22&&(!learned||sim>learned.sim))learned={merchant:r.merchant,sim};
+  }
+  if(learned)return {merchant:learned.merchant,signature:sig};
+
+  for(const c of cands.slice(0,10)){
+    for(const [name,re] of KNOWN)if(re.test(c.t))return {merchant:name,signature:sig};
+  }
+  return {merchant:cands[0]?.t||'',signature:sig};
+}
+
+$('#receiptInput').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];e.target.value='';if(!file)return;
+  editingId=null;resetDialog();
+  $('#entryTitle').textContent='読み取り確認';
+  $('#receiptPreview').src=URL.createObjectURL(file);$('#receiptPreview').classList.remove('hidden');
+  $('#ocrBox').classList.remove('hidden');$('#ocrHint').classList.remove('hidden');
+  $('#dateInput').value='';$('#merchantInput').value='';$('#amountInput').value='';
+  $('#entryDialog').showModal();
+
+  try{
+    $('#ocrStatus').textContent='画像を補正中…';
+    const canvas=await preprocess(file);
+    $('#ocrStatus').textContent='レシート全体を読み取り中…';
+
+    const result=await Tesseract.recognize(canvas,'jpn+eng',{
+      logger:m=>{
+        if(m.status==='recognizing text'){
+          const p=Math.round((m.progress||0)*100);
+          $('#ocrProgress').style.width=p+'%';
+          $('#ocrStatus').textContent=`読み取り中… ${p}%`;
         }
       }
-    }
-    if(date) break;
+    });
+
+    const data=result.data||{};
+    const words=collectWords(data);
+    const lines=groupLines(words);
+    const text=data.text||'';
+
+    const date=parseDate(text);
+    const merchantInfo=parseMerchant(lines,canvas.height);
+    const amount=parseAmount(lines);
+
+    pendingMerchantSignature=merchantInfo.signature||'';
+    $('#dateInput').value=date||isoToday();
+    $('#merchantInput').value=merchantInfo.merchant||'';
+    $('#amountInput').value=amount||'';
+
+    const missing=[];
+    if(!merchantInfo.merchant)missing.push('店名');
+    if(!amount)missing.push('合計金額');
+    $('#ocrStatus').textContent=missing.length?`読み取り完了（${missing.join('・')}を確認）`:'読み取り完了';
+
+    // 失敗時の調整に使えるよう、OCR原文を画面内に残す（普段は隠す）
+    $('#debugBox').textContent=text.slice(0,1200);
+    console.log('OCR raw',text);
+    console.log('parsed',{date,merchant:merchantInfo.merchant,amount});
+  }catch(err){
+    console.error(err);
+    $('#ocrStatus').textContent='読み取りに失敗しました。手動入力してください。';
+    $('#dateInput').value=isoToday();
   }
+});
 
-  const amount=likelyAmountFromTotal(lines)||fallbackAmount(lines);
-  const merchant=likelyMerchant(lines);
-  console.log('OCR text:',normalized);
-  console.log('parsed:',{date,merchant,amount});
-  return {date,merchant,amount};
-}
-
-if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
-}
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 render();
 </script>
 </body>
