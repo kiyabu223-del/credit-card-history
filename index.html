@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a84ff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="カード利用履歴" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <title>クレジットカード利用履歴</title>
+  <!-- v2.1 -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root{
+      --bg:#f5f7fb; --card:#fff; --text:#111827; --muted:#6b7280;
+      --blue:#0a84ff; --line:#e5e7eb; --danger:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Yu Gothic",sans-serif;
+      background:var(--bg);color:var(--text);padding-bottom:calc(96px + env(safe-area-inset-bottom));
+    }
+    header{
+      position:sticky;top:0;z-index:10;background:rgba(245,247,251,.94);
+      backdrop-filter:blur(12px);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
+      border-bottom:1px solid var(--line)
+    }
+    h1{font-size:18px;margin:0;text-align:center}
+    .wrap{max-width:720px;margin:auto;padding:14px}
+    .monthbar{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}
+    button{font:inherit}
+    .iconbtn{border:0;background:transparent;font-size:28px;color:var(--blue);padding:8px 14px}
+    .monthtitle{font-weight:700}
+    .summary{
+      background:linear-gradient(135deg,#eaf4ff,#f8fbff);border:1px solid #d7eaff;
+      border-radius:18px;padding:18px;margin-bottom:14px
+    }
+    .summary .label{font-size:13px;color:var(--muted)}
+    .summary .total{font-size:34px;font-weight:800;margin-top:2px}
+    .summary .count{font-size:13px;color:var(--muted);margin-top:4px}
+    .table-card{background:var(--card);border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+    .thead,.row{display:grid;grid-template-columns:72px 1fr 92px;gap:8px;align-items:center;padding:11px 12px}
+    .thead{background:#f9fafb;color:var(--muted);font-size:12px;font-weight:700}
+    .row{border-top:1px solid var(--line);font-size:14px}
+    .row button{all:unset;display:contents;cursor:pointer}
+    .amount{text-align:right;font-variant-numeric:tabular-nums}
+    .empty{padding:28px;text-align:center;color:var(--muted)}
+    .actions{
+      position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);
+      backdrop-filter:blur(12px);border-top:1px solid var(--line);
+      padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+      display:flex;gap:10px;z-index:20
+    }
+    .btn{border:0;border-radius:14px;padding:14px 16px;font-weight:700;flex:1}
+    .primary{background:var(--blue);color:#fff}.secondary{background:#eaf4ff;color:#0066cc}
+    dialog{
+      width:min(92vw,560px);border:0;border-radius:20px;padding:0;
+      box-shadow:0 20px 60px rgba(0,0,0,.25)
+    }
+    dialog::backdrop{background:rgba(0,0,0,.35)}
+    .modal{padding:18px}
+    .modal h2{margin:0 0 14px;font-size:20px}
+    label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
+    input{width:100%;font:inherit;padding:12px;border:1px solid #d1d5db;border-radius:12px;background:#fff}
+    .modal-actions{display:flex;gap:10px;margin-top:16px}
+    .danger{background:#fee2e2;color:#b91c1c}
+    .ghost{background:#f3f4f6;color:#111827}
+    .preview{width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:#f3f4f6;margin:8px 0}
+    .ocr-status{font-size:13px;color:var(--muted);margin:8px 0}
+    .progress{height:8px;background:#e5e7eb;border-radius:99px;overflow:hidden}
+    .progress>div{height:100%;width:0;background:var(--blue);transition:width .2s}
+    .small{font-size:12px;color:var(--muted);line-height:1.5}
+    .hidden{display:none!important}
+  </style>
+</head>
+<body>
+<header><h1>クレジットカード利用履歴</h1></header>
+
+<main class="wrap">
+  <div class="monthbar">
+    <button id="prevMonth" class="iconbtn" aria-label="前月">‹</button>
+    <div id="monthTitle" class="monthtitle"></div>
+    <button id="nextMonth" class="iconbtn" aria-label="翌月">›</button>
+  </div>
+
+  <section class="summary">
+    <div class="label">今月の利用額</div>
+    <div id="monthTotal" class="total">¥0</div>
+    <div id="monthCount" class="count">0件</div>
+  </section>
+
+  <section class="table-card">
+    <div class="thead"><div>日付</div><div>利用店</div><div class="amount">金額</div></div>
+    <div id="rows"></div>
+  </section>
+</main>
+
+<div class="actions">
+  <button id="scanBtn" class="btn primary">📷 レシート撮影</button>
+  <button id="manualBtn" class="btn secondary">✏️ 手動入力</button>
+</div>
+
+<input id="receiptInput" class="hidden" type="file" accept="image/*" capture="environment" />
+
+<dialog id="entryDialog">
+  <form class="modal" id="entryForm">
+    <h2 id="entryTitle">手動入力</h2>
+    <img id="receiptPreview" class="preview hidden" alt="レシート画像" />
+    <div id="ocrBox" class="hidden">
+      <div id="ocrStatus" class="ocr-status">読み取り中...</div>
+      <div class="progress"><div id="ocrProgress"></div></div>
+    </div>
+
+    <label for="dateInput">日付</label>
+    <input id="dateInput" type="date" required />
+
+    <label for="merchantInput">利用店</label>
+    <input id="merchantInput" type="text" placeholder="例：ロイヤルホスト" required />
+
+    <label for="amountInput">金額</label>
+    <input id="amountInput" type="number" min="1" inputmode="numeric" placeholder="例：3280" required />
+
+    <p id="ocrHint" class="small hidden">OCRの結果は誤ることがあります。保存前に内容を確認してください。</p>
+
+    <div class="modal-actions">
+      <button type="button" id="deleteBtn" class="btn danger hidden">削除</button>
+      <button type="button" id="cancelBtn" class="btn ghost">キャンセル</button>
+      <button type="submit" class="btn primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const KEY = 'credit-card-history-v2';
+const OLD_KEY = 'credit-card-history-v1';
+
+function loadItems(){
+  let raw = localStorage.getItem(KEY);
+  if(!raw) raw = localStorage.getItem(OLD_KEY);
+  try{
+    const parsed = JSON.parse(raw || '[]');
+    // 旧版の巨大なレシート画像を除去して、履歴だけを移行する。
+    return Array.isArray(parsed) ? parsed.map(({image, ...x}) => x) : [];
+  }catch{
+    return [];
+  }
+}
+
+let items = loadItems();
+let current = new Date();
+current.setDate(1);
+let editingId = null;
+let pendingImageData = null; // プレビュー専用。保存しない。
+
+const $ = s => document.querySelector(s);
+const rows = $('#rows');
+
+function saveAll(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(items.map(({image, ...x}) => x)));
+    localStorage.removeItem(OLD_KEY);
+    return true;
+  }catch(err){
+    console.error('保存失敗', err);
+    alert('保存に失敗しました。Safariの保存容量が不足している可能性があります。');
+    return false;
+  }
+}
+
+function monthKey(d){
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`;
+}
+function fmtYen(n){ return new Intl.NumberFormat('ja-JP',{style:'currency',currency:'JPY',maximumFractionDigits:0}).format(n||0); }
+function fmtDate(d){
+  const x = new Date(d+'T00:00:00');
+  return `${x.getMonth()+1}/${x.getDate()}`;
+}
+function render(){
+  $('#monthTitle').textContent = `${current.getFullYear()}年${current.getMonth()+1}月`;
+  const key = monthKey(current);
+  const list = items.filter(x => x.date.startsWith(key)).sort((a,b)=>b.date.localeCompare(a.date));
+  const total = list.reduce((s,x)=>s+Number(x.amount||0),0);
+  $('#monthTotal').textContent = fmtYen(total);
+  $('#monthCount').textContent = `${list.length}件`;
+  rows.innerHTML = '';
+  if(!list.length){
+    rows.innerHTML = `<div class="empty">利用履歴がありません</div>`;
+    return;
+  }
+  for(const item of list){
+    const div = document.createElement('div');
+    div.className='row';
+    div.innerHTML = `<button data-id="${item.id}">
+      <div>${fmtDate(item.date)}</div>
+      <div>${escapeHtml(item.merchant)}</div>
+      <div class="amount">${fmtYen(item.amount)}</div>
+    </button>`;
+    div.querySelector('button').addEventListener('click',()=>openEdit(item.id));
+    rows.appendChild(div);
+  }
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[c]));
+}
+function isoToday(){
+  const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function openManual(){
+  editingId=null; pendingImageData=null;
+  $('#entryTitle').textContent='手動入力';
+  $('#dateInput').value=isoToday(); $('#merchantInput').value=''; $('#amountInput').value='';
+  $('#deleteBtn').classList.add('hidden'); $('#receiptPreview').classList.add('hidden');
+  $('#ocrBox').classList.add('hidden'); $('#ocrHint').classList.add('hidden');
+  $('#entryDialog').showModal();
+}
+function openEdit(id){
+  const x=items.find(i=>i.id===id); if(!x)return;
+  editingId=id; pendingImageData=null;
+  $('#entryTitle').textContent='利用履歴を編集';
+  $('#dateInput').value=x.date; $('#merchantInput').value=x.merchant; $('#amountInput').value=x.amount;
+  $('#deleteBtn').classList.remove('hidden');
+  $('#receiptPreview').classList.add('hidden');
+  $('#ocrBox').classList.add('hidden'); $('#ocrHint').classList.add('hidden');
+  $('#entryDialog').showModal();
+}
+$('#entryForm').addEventListener('submit',e=>{
+  e.preventDefault();
+
+  const date = $('#dateInput').value;
+  const merchant = $('#merchantInput').value.trim();
+  const amount = Number(String($('#amountInput').value).replace(/,/g,''));
+
+  if(!date){
+    alert('日付を確認してください。');
+    return;
+  }
+  if(!merchant){
+    alert('利用店を入力してください。');
+    return;
+  }
+  if(!Number.isFinite(amount) || amount <= 0){
+    alert('金額を確認してください。');
+    return;
+  }
+
+  const data={
+    id:editingId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+    date,
+    merchant,
+    amount
+  };
+
+  const before = items.slice();
+  if(editingId) items=items.map(x=>x.id===editingId?data:x);
+  else items.push(data);
+
+  if(saveAll()){
+    $('#entryDialog').close();
+    const d = new Date(date + 'T00:00:00');
+    current = new Date(d.getFullYear(), d.getMonth(), 1);
+    render();
+  }else{
+    items = before;
+  }
+});
+$('#cancelBtn').onclick=()=>$('#entryDialog').close();
+$('#deleteBtn').onclick=()=>{
+  if(!editingId)return;
+  if(confirm('この利用履歴を削除しますか？')){
+    items=items.filter(x=>x.id!==editingId); saveAll(); $('#entryDialog').close(); render();
+  }
+};
+$('#manualBtn').onclick=openManual;
+$('#prevMonth').onclick=()=>{current.setMonth(current.getMonth()-1);render()};
+$('#nextMonth').onclick=()=>{current.setMonth(current.getMonth()+1);render()};
+
+$('#scanBtn').onclick=()=>$('#receiptInput').click();
+$('#receiptInput').addEventListener('change', async e=>{
+  const file=e.target.files?.[0]; e.target.value=''; if(!file)return;
+  editingId=null;
+  pendingImageData=await fileToDataURL(file);
+  $('#entryTitle').textContent='読み取り確認';
+  $('#receiptPreview').src=pendingImageData; $('#receiptPreview').classList.remove('hidden');
+  $('#dateInput').value=''; $('#merchantInput').value=''; $('#amountInput').value='';
+  $('#deleteBtn').classList.add('hidden');
+  $('#ocrHint').classList.remove('hidden');
+  $('#ocrBox').classList.remove('hidden'); $('#ocrProgress').style.width='0%';
+  $('#entryDialog').showModal();
+
+  try{
+    $('#ocrStatus').textContent='画像を読みやすく補正中…';
+    const ocrImage = await preprocessReceiptImage(file);
+
+    const result=await Tesseract.recognize(ocrImage,'jpn+eng',{
+      logger:m=>{
+        if(m.status==='recognizing text'){
+          const p=Math.round((m.progress||0)*100);
+          $('#ocrProgress').style.width=p+'%';
+          $('#ocrStatus').textContent=`文字を読み取り中… ${p}%`;
+        }else{
+          $('#ocrStatus').textContent='OCRを準備中…';
+        }
+      }
+    });
+
+    $('#ocrProgress').style.width='100%';
+    const parsed=parseReceipt(result.data.text);
+    $('#dateInput').value=parsed.date || isoToday();
+    $('#merchantInput').value=parsed.merchant || '';
+    $('#amountInput').value=parsed.amount || '';
+
+    const missing=[];
+    if(!parsed.merchant) missing.push('店名');
+    if(!parsed.amount) missing.push('合計金額');
+    $('#ocrStatus').textContent = missing.length
+      ? `読み取り完了（${missing.join('・')}を確認してください）`
+      : '読み取り完了';
+  }catch(err){
+    console.error(err);
+    $('#ocrStatus').textContent='読み取りに失敗しました。手動で入力してください。';
+    $('#dateInput').value=isoToday();
+  }
+});
+function fileToDataURL(file){
+  return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)});
+}
+
+async function preprocessReceiptImage(file){
+  const url = URL.createObjectURL(file);
+  try{
+    const img = await new Promise((resolve,reject)=>{
+      const i=new Image();
+      i.onload=()=>resolve(i);
+      i.onerror=reject;
+      i.src=url;
+    });
+
+    const maxWidth=1800;
+    const scale=Math.min(1,maxWidth/img.naturalWidth);
+    const w=Math.max(1,Math.round(img.naturalWidth*scale));
+    const h=Math.max(1,Math.round(img.naturalHeight*scale));
+
+    const canvas=document.createElement('canvas');
+    canvas.width=w; canvas.height=h;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(img,0,0,w,h);
+
+    const imageData=ctx.getImageData(0,0,w,h);
+    const d=imageData.data;
+    for(let i=0;i<d.length;i+=4){
+      const gray=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+      let v=(gray-128)*1.55+128;
+      v=Math.max(0,Math.min(255,v));
+      if(v>210)v=255;
+      d[i]=d[i+1]=d[i+2]=v;
+    }
+    ctx.putImageData(imageData,0,0);
+    return await new Promise(resolve=>canvas.toBlob(b=>resolve(b||file),'image/jpeg',0.92));
+  }finally{
+    URL.revokeObjectURL(url);
+  }
+}
+
+function normalizeOCRText(s){
+  return String(s||'')
+    .replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+    .replace(/，/g,',')
+    .replace(/．/g,'.')
+    .replace(/[￥¥]/g,'¥')
+    .replace(/[：]/g,':')
+    .replace(/\u3000/g,' ')
+    .replace(/[|｜]/g,'I');
+}
+
+function extractMoneyValues(line){
+  const normalized=normalizeOCRText(line).replace(/(\d)\s+(?=\d{3}\b)/g,'$1');
+  const values=[];
+  const re=/(?:¥\s*)?(\d{1,3}(?:,\d{3})+|\d{2,8})(?:\.\d{1,2})?/g;
+  for(const m of normalized.matchAll(re)){
+    const n=Number(m[1].replace(/,/g,''));
+    if(Number.isFinite(n)&&n>0&&n<100000000) values.push(n);
+  }
+  return values;
+}
+
+function likelyAmountFromTotal(lines){
+  const strong=[
+    /総\s*合\s*計/i,
+    /合\s*計/i,
+    /お\s*支\s*払(?:い)?(?:額)?/i,
+    /ご\s*請\s*求(?:額)?/i,
+    /請\s*求\s*額/i,
+    /取\s*引\s*金\s*額/i,
+    /クレジット\s*(?:支払|支払い|利用)?/i,
+    /支\s*払\s*額/i
+  ];
+  const excluded=/小\s*計|消費税|内税|外税|税率|お釣|釣銭|預り|預かり/i;
+
+  for(const pattern of strong){
+    for(let i=0;i<lines.length;i++){
+      const line=lines[i];
+      if(!pattern.test(line)||excluded.test(line)) continue;
+
+      // 「合計 3,280」のように同じ行にあれば、その最後の金額を採用
+      let nums=extractMoneyValues(line).filter(n=>n>=10);
+      if(nums.length) return nums[nums.length-1];
+
+      // OCRで「合計」と「3,280」が別行になっても拾う
+      for(let j=1;j<=2&&i+j<lines.length;j++){
+        if(excluded.test(lines[i+j])) continue;
+        nums=extractMoneyValues(lines[i+j]).filter(n=>n>=10);
+        if(nums.length) return nums[0];
+      }
+    }
+  }
+
+  // 「計」だけ認識できた場合の弱い補助
+  for(let i=0;i<lines.length;i++){
+    if(!/(?:^|\s)計\s*[:：]?\s*$/i.test(lines[i])||excluded.test(lines[i])) continue;
+    const nums=extractMoneyValues([lines[i],lines[i+1]||''].join(' ')).filter(n=>n>=10);
+    if(nums.length) return nums[nums.length-1];
+  }
+  return null;
+}
+
+function fallbackAmount(lines){
+  const candidates=[];
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    if(/TEL|電話|〒|登録番号|No\.?|日時|時刻/i.test(line)) continue;
+    if(/\b20\d{2}[\/\-.年]/.test(line)) continue;
+    if(/\b\d{1,2}:\d{2}\b/.test(line)) continue;
+
+    for(const n of extractMoneyValues(line)){
+      if(n>=10&&n<=3000000){
+        let score=0;
+        if(/[¥￥]/.test(line)) score+=2;
+        if(/円/.test(line)) score+=2;
+        if(/現金|カード|クレジット|支払/i.test(line)) score+=2;
+        if(/小計|税|釣銭|預り/i.test(line)) score-=5;
+        candidates.push({n,score});
+      }
+    }
+  }
+  candidates.sort((a,b)=>(b.score-a.score)||(b.n-a.n));
+  return candidates[0]?.n||'';
+}
+
+function likelyMerchant(lines){
+  const blacklist=/TEL|電話|FAX|住所|〒|レシート|領収|担当|日時|日付|合計|小計|消費税|税率|現金|釣銭|お預り|クレジット|カード|No\.?|番号|登録番号|営業時間|取引|商品|単価|数量|税込|税抜|ありがとう|毎度/i;
+  let best={line:'',score:-999};
+
+  lines.slice(0,16).forEach((raw,idx)=>{
+    const line=normalizeOCRText(raw)
+      .replace(/[=_*#<>]/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+
+    if(line.length<2||line.length>45) return;
+    if(blacklist.test(line)) return;
+    if(/^[\d\s\-:\/.,¥]+$/.test(line)) return;
+
+    const digits=(line.match(/\d/g)||[]).length;
+    const letters=(line.match(/[A-Za-z\u3040-\u30ff\u3400-\u9fff]/g)||[]).length;
+    if(letters<2) return;
+    if(digits>Math.max(3,line.length*0.35)) return;
+
+    let score=20-idx;
+    score+=Math.min(10,letters/2);
+    if(/店$|支店$|本店$|STORE|SHOP|CAFE|MART|DINER|HOTEL/i.test(line)) score+=6;
+    if(/株式会社|有限会社|合同会社/.test(line)) score-=2;
+    if(/https?:|www\.|@/.test(line)) score-=8;
+    if(/[都道府県市区町村]\S*\d/.test(line)) score-=8;
+
+    if(score>best.score) best={line,score};
+  });
+
+  return best.line;
+}
+
+function parseReceipt(text){
+  const normalized=normalizeOCRText(text);
+  const lines=normalized.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+
+  let date='';
+  const datePatterns=[
+    /(20\d{2})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})\s*日?/,
+    /(\d{2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/
+  ];
+
+  for(const line of lines){
+    for(const p of datePatterns){
+      const m=line.match(p);
+      if(m){
+        let y=Number(m[1]); if(y<100)y+=2000;
+        const mo=Number(m[2]),day=Number(m[3]);
+        if(mo>=1&&mo<=12&&day>=1&&day<=31){
+          date=`${y}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          break;
+        }
+      }
+    }
+    if(date) break;
+  }
+
+  const amount=likelyAmountFromTotal(lines)||fallbackAmount(lines);
+  const merchant=likelyMerchant(lines);
+  console.log('OCR text:',normalized);
+  console.log('parsed:',{date,merchant,amount});
+  return {date,merchant,amount};
+}
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+render();
+</script>
+</body>
+</html>
