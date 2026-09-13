@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="カード利用履歴" />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>クレジットカード利用履歴</title>
-  <!-- v2.2 positional multi-pass OCR -->
+  <!-- v2.3 merchant learning OCR -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root{
@@ -152,6 +152,16 @@ let current = new Date();
 current.setDate(1);
 let editingId = null;
 let pendingImageData = null; // プレビュー専用。保存しない。
+let pendingMerchantFingerprint = '';
+const MERCHANT_KEY = 'credit-card-history-merchant-learning-v1';
+
+function loadMerchantLearning(){
+  try{return JSON.parse(localStorage.getItem(MERCHANT_KEY)||'{}')||{};}catch{return {};}
+}
+let merchantLearning = loadMerchantLearning();
+function saveMerchantLearning(){
+  try{localStorage.setItem(MERCHANT_KEY,JSON.stringify(merchantLearning));}catch{}
+}
 
 const $ = s => document.querySelector(s);
 const rows = $('#rows');
@@ -208,7 +218,7 @@ function isoToday(){
   const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function openManual(){
-  editingId=null; pendingImageData=null;
+  editingId=null; pendingImageData=null; pendingMerchantFingerprint='';
   $('#entryTitle').textContent='手動入力';
   $('#dateInput').value=isoToday(); $('#merchantInput').value=''; $('#amountInput').value='';
   $('#deleteBtn').classList.add('hidden'); $('#receiptPreview').classList.add('hidden');
@@ -217,7 +227,7 @@ function openManual(){
 }
 function openEdit(id){
   const x=items.find(i=>i.id===id); if(!x)return;
-  editingId=id; pendingImageData=null;
+  editingId=id; pendingImageData=null; pendingMerchantFingerprint='';
   $('#entryTitle').textContent='利用履歴を編集';
   $('#dateInput').value=x.date; $('#merchantInput').value=x.merchant; $('#amountInput').value=x.amount;
   $('#deleteBtn').classList.remove('hidden');
@@ -257,6 +267,11 @@ $('#entryForm').addEventListener('submit',e=>{
   else items.push(data);
 
   if(saveAll()){
+    if(pendingMerchantFingerprint && merchant){
+      merchantLearning[pendingMerchantFingerprint] = merchant;
+      saveMerchantLearning();
+    }
+    pendingMerchantFingerprint = '';
     $('#entryDialog').close();
     const d = new Date(date + 'T00:00:00');
     current = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -308,10 +323,9 @@ $('#receiptInput').addEventListener('change', async e=>{
     const bottom = await recognizeReceipt(prepared.bottom, 72, 100);
 
     const date = extractReceiptDate(full.text);
-    const merchant =
-      merchantFromPositionedOCR(top.words, top.text) ||
-      likelyMerchant(normalizeOCRText(top.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean)) ||
-      likelyMerchant(normalizeOCRText(full.text).split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
+    const merchantInfo = chooseMerchant(top.words, top.text, full.words, full.text);
+    pendingMerchantFingerprint = merchantInfo.fingerprint || '';
+    const merchant = merchantInfo.merchant || '';
 
     const amount =
       amountFromPositionedOCR(bottom.words) ||
@@ -532,6 +546,155 @@ function amountFromPositionedOCR(words){
     }
   }
   return null;
+}
+
+
+const KNOWN_MERCHANTS = [
+  ['セブン-イレブン', /セブン.?イレブン|7.?ELEVEN|SEVEN.?ELEVEN/i],
+  ['ファミリーマート', /ファミリ.?マート|FAMILY.?MART/i],
+  ['ローソン', /ローソン|LAWSON/i],
+  ['ミニストップ', /ミニストップ|MINI.?STOP/i],
+  ['イオン', /イオン|AEON/i],
+  ['イトーヨーカドー', /イトー.?ヨーカドー|ITO.?YOKADO/i],
+  ['西友', /西友|SEIYU/i],
+  ['ヤオコー', /ヤオコー|YAOKO/i],
+  ['ベルク', /ベルク|BELC/i],
+  ['マルエツ', /マルエツ|MARUETSU/i],
+  ['ライフ', /ライフ|LIFE/i],
+  ['業務スーパー', /業務.?スーパー/i],
+  ['ドン・キホーテ', /ドン.?キホーテ|DON.?QUIJOTE/i],
+  ['マツモトキヨシ', /マツモト.?キヨシ|MATSUMOTO.?KIYOSHI/i],
+  ['ウエルシア', /ウエルシア|WELCIA/i],
+  ['スギ薬局', /スギ薬局|SUGI/i],
+  ['サンドラッグ', /サンドラッグ|SUNDRUG/i],
+  ['ココカラファイン', /ココカラ.?ファイン|COCOKARA/i],
+  ['ロイヤルホスト', /ロイヤル.?ホスト|ROYAL.?HOST/i],
+  ['ガスト', /ガスト|GUSTO/i],
+  ['サイゼリヤ', /サイゼリヤ|SAIZERIYA/i],
+  ['デニーズ', /デニーズ|DENNY/i],
+  ['マクドナルド', /マクドナルド|MCDONALD/i],
+  ['ケンタッキーフライドチキン', /ケンタッキー|KFC|KENTUCKY/i],
+  ['スターバックス', /スターバックス|STARBUCKS/i],
+  ['ドトール', /ドトール|DOUTOR/i],
+  ['ユニクロ', /ユニクロ|UNIQLO/i],
+  ['GU', /(?:^|\s)GU(?:\s|$)/i],
+  ['無印良品', /無印良品|MUJI/i],
+  ['ニトリ', /ニトリ|NITORI/i],
+  ['Amazon', /AMAZON/i],
+  ['Apple', /APPLE/i]
+];
+
+function simplifyMerchantText(s){
+  return normalizeOCRText(s)
+    .toUpperCase()
+    .replace(/\s+/g,'')
+    .replace(/[^\p{L}\p{N}]/gu,'')
+    .slice(0,80);
+}
+
+function levenshtein(a,b){
+  a=String(a); b=String(b);
+  const dp=Array.from({length:b.length+1},(_,i)=>i);
+  for(let i=1;i<=a.length;i++){
+    let prev=dp[0]; dp[0]=i;
+    for(let j=1;j<=b.length;j++){
+      const tmp=dp[j];
+      dp[j]=Math.min(dp[j]+1,dp[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));
+      prev=tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+function merchantFingerprintFromText(s){
+  return simplifyMerchantText(s).slice(0,40);
+}
+
+function learnedMerchant(candidate){
+  const fp=merchantFingerprintFromText(candidate);
+  if(!fp)return null;
+  if(merchantLearning[fp]) return {merchant:merchantLearning[fp],fingerprint:fp};
+
+  let best=null;
+  for(const [knownFp,name] of Object.entries(merchantLearning)){
+    const maxLen=Math.max(fp.length,knownFp.length);
+    if(maxLen<3)continue;
+    const sim=1-(levenshtein(fp,knownFp)/maxLen);
+    if(sim>=0.72 && (!best || sim>best.sim)) best={merchant:name,fingerprint:fp,sim};
+  }
+  return best;
+}
+
+function knownMerchant(candidate){
+  const normalized=normalizeOCRText(candidate);
+  for(const [name,re] of KNOWN_MERCHANTS){
+    if(re.test(normalized))return name;
+  }
+
+  const simple=simplifyMerchantText(normalized);
+  if(simple.length>=3){
+    let best=null;
+    for(const [name] of KNOWN_MERCHANTS){
+      const target=simplifyMerchantText(name);
+      const maxLen=Math.max(simple.length,target.length);
+      const sim=1-(levenshtein(simple,target)/maxLen);
+      if(sim>=0.70 && (!best || sim>best.sim))best={name,sim};
+    }
+    if(best)return best.name;
+  }
+  return null;
+}
+
+function topMerchantCandidates(words,text){
+  const candidates=[];
+  const lines=groupWordsIntoLines(words);
+  const blacklist=/TEL|電話|FAX|住所|〒|レシート|領収|担当|日時|日付|合計|小計|消費税|税率|現金|釣銭|お預り|クレジット|カード|No\.?|番号|登録番号|営業時間|取引|商品|単価|数量|税込|税抜|ありがとう|毎度|http|www/i;
+
+  lines.slice(0,12).forEach((line,idx)=>{
+    const txt=line.words.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+    if(txt.length<2||txt.length>60||blacklist.test(txt))return;
+    const letters=(txt.match(/[A-Za-z\u3040-\u30ff\u3400-\u9fff]/g)||[]).length;
+    const digits=(txt.match(/\d/g)||[]).length;
+    if(letters<2 || digits>Math.max(3,txt.length*.35))return;
+
+    const avgHeight=line.avgHeight||0;
+    const avgConf=line.words.reduce((s,w)=>s+(w.confidence||0),0)/Math.max(1,line.words.length);
+    let score=60-idx*3 + avgHeight*.8 + avgConf*.1 + Math.min(12,letters*.5);
+    if(/店$|支店$|本店$|STORE|SHOP|CAFE|MART|DINER|HOTEL/i.test(txt))score+=12;
+    if(/株式会社|有限会社|合同会社/.test(txt))score-=5;
+    if(/[都道府県市区町村]\S*\d/.test(txt))score-=18;
+    candidates.push({text:txt,score});
+  });
+
+  normalizeOCRText(text).split(/\r?\n/).slice(0,10).forEach((raw,idx)=>{
+    const txt=raw.replace(/\s+/g,' ').trim();
+    if(txt.length>=2&&!blacklist.test(txt)){
+      candidates.push({text:txt,score:35-idx*2});
+    }
+  });
+
+  candidates.sort((a,b)=>b.score-a.score);
+  return candidates;
+}
+
+function chooseMerchant(topWords,topText,fullWords,fullText){
+  const candidates=[
+    ...topMerchantCandidates(topWords,topText),
+    ...topMerchantCandidates(fullWords,fullText).map(x=>({...x,score:x.score-15}))
+  ];
+
+  for(const c of candidates.slice(0,10)){
+    const learned=learnedMerchant(c.text);
+    if(learned)return learned;
+  }
+
+  for(const c of candidates.slice(0,12)){
+    const known=knownMerchant(c.text);
+    if(known)return {merchant:known,fingerprint:merchantFingerprintFromText(c.text)};
+  }
+
+  const best=candidates[0]?.text || '';
+  return {merchant:best,fingerprint:merchantFingerprintFromText(best)};
 }
 
 function merchantFromPositionedOCR(words,fallbackText){
