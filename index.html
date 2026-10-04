@@ -46,7 +46,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}input{wi
 </style>
 </head>
 <body>
-<header><h1>クレジットカード利用履歴 <time class="revision" datetime="2026-10-04T14:16:00+09:00" aria-label="修正日時（日本時間）">2026/10/4 14:16</time></h1></header>
+<header><h1>クレジットカード利用履歴 <time class="revision" datetime="2026-10-04T14:23:00+09:00" aria-label="修正日時（日本時間）">2026/10/4 14:23</time></h1></header>
 <main class="wrap">
   <div class="monthbar">
     <button id="prevMonth" class="iconbtn">‹</button>
@@ -333,7 +333,7 @@ async function preprocess(file,merchantCrop=false,region=null){
   }finally{URL.revokeObjectURL(url)}
 }
 
-function parseDate(text,checkWeekday=true){
+function parseDate(text,checkWeekday=false){
   // OCRが「2 0 2 6」「1 0 月」のように文字間を空けても日付を解析する。
   const t=normalizeText(text).replace(/[^\S\r\n]+/g,'');
   const pats=[
@@ -510,6 +510,20 @@ function dateRegion(lines,pageWidth,pageHeight){
   const bottom=Math.max(...line.words.map(w=>w.box.y1))+line.avgH*.2;
   return {top:Math.max(0,top/pageHeight),bottom:Math.min(1,bottom/pageHeight),left:Math.max(0,(Math.min(...line.words.map(w=>w.box.x0))-line.avgH)/pageWidth),right:Math.min(1,(Math.max(...line.words.map(w=>w.box.x1))+line.avgH)/pageWidth)};
 }
+function chooseDateReadings(originalText,detailTexts){
+  const original=parseDate(originalText);
+  const readings=detailTexts.map(text=>({date:parseDate(text),checked:parseDate(text,true)})).filter(r=>r.date);
+  let date=original;
+  if(readings.length>=2&&readings.every(r=>r.date===readings[0].date))date=readings[0].date;
+  else if(original&&!parseDate(originalText,true)){
+    // 元の年と曜日が矛盾する場合は、曜日にも一致する再OCR候補を優先。
+    date=readings.find(r=>r.date===r.checked)?.date||original;
+  }else if(!date)date=readings.find(r=>r.date===r.checked)?.date||readings[0]?.date||'';
+  const candidates=[original,...readings.map(r=>r.date)].filter(Boolean);
+  const needsCheck=!date||new Set(candidates).size>1||
+    (date===original&&!parseDate(originalText,true))||readings.some(r=>r.date===date&&!r.checked);
+  return {date,needsCheck};
+}
 function chooseAmountReadings(readings){
   const agreed=[];
   for(const r of readings){
@@ -601,22 +615,20 @@ $('#receiptInput').addEventListener('change',async e=>{
     }
     let date=parseDate(full.text);
     let dateText='';
+    const dateTexts=[];
     const dateCrop=dateRegion(full.lines,full.canvas.width,full.canvas.height);
     if(dateCrop){
-      const dates=[];
       for(let pass=0;pass<2;pass++){
         try{
           const image=await preprocess(file,false,{...dateCrop,digits:true,binary:pass===1});
           const detail=await recognizeCanvas(image,'日付',35+pass*5,40+pass*5,{tessedit_pageseg_mode:'7'});
           dateText+=detail.text+'\n';
-          const refined=parseDate(detail.text);
-          if(refined)dates.push(refined);
+          dateTexts.push(detail.text);
         }catch(err){console.warn('日付の再読み取りに失敗',err)}
       }
-      if(dates.length===2&&dates[0]===dates[1])date=dates[0];
-      else if(dates.length===1&&!date)date=dates[0];
-      else if(dates.some(d=>d!==date))date='';
     }
+    const dateDecision=chooseDateReadings(full.text,dateTexts);
+    date=dateDecision.date;
     let amount=parseAmount(full.lines);
     let amountText='';
     const regions=amountDigitRegions(full.lines,full.canvas.width,full.canvas.height);
@@ -662,10 +674,12 @@ $('#receiptInput').addEventListener('change',async e=>{
 
     const missing=[];
     if(!date)missing.push('日付');
+    else if(dateDecision.needsCheck)missing.push('日付');
     if(!merchantInfo.merchant)missing.push('店名');
     if(!amount)missing.push('合計金額');
     $('#ocrHint').textContent=amountNeedsCheck?'合計金額を確実に読み取れませんでした。写真と照合して入力・修正してください。':'OCR結果は必ず保存前に確認してください。';
     if(!date)$('#ocrHint').textContent='日付を確実に読み取れませんでした。写真の日付を入力してください。'+(amountNeedsCheck?'合計金額も写真と照合してください。':'');
+    else if(dateDecision.needsCheck)$('#ocrHint').textContent='日付の読み取り結果に不一致があります。表示した候補を写真と照合してください。'+(amountNeedsCheck?'合計金額も確認してください。':'');
     if(amountNeedsCheck&&!missing.includes('合計金額'))missing.push('合計金額');
     $('#ocrStatus').textContent=missing.length?`読み取り完了（${missing.join('・')}を確認）`:'読み取り完了';
 
