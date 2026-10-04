@@ -271,19 +271,27 @@ async function preprocess(file,merchantCrop=false,region=null){
     const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
     const sourceY=region?Math.floor(img.naturalHeight*region.top):0;
     const sourceH=region?Math.max(1,Math.ceil(img.naturalHeight*region.bottom)-sourceY):(merchantCrop?Math.ceil(img.naturalHeight*.4):img.naturalHeight);
+    const sourceX=region?Math.floor(img.naturalWidth*(region.left||0)):0;
+    const sourceW=region?Math.max(1,img.naturalWidth-sourceX):img.naturalWidth;
     const maxW=region?3600:(merchantCrop?2400:1800);
-    const scale=region?Math.min(3,maxW/img.naturalWidth):(merchantCrop?Math.min(2,maxW/img.naturalWidth):Math.min(1,maxW/img.naturalWidth));
-    const w=Math.round(img.naturalWidth*scale),h=Math.round(sourceH*scale);
+    const scale=region?Math.min(4,maxW/sourceW):(merchantCrop?Math.min(2,maxW/img.naturalWidth):Math.min(1,maxW/img.naturalWidth));
+    const w=Math.round(sourceW*scale),h=Math.round(sourceH*scale);
     const c=document.createElement('canvas');c.width=w;c.height=h;
-    const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,sourceY,img.naturalWidth,sourceH,0,0,w,h);
+    const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,sourceX,sourceY,sourceW,sourceH,0,0,w,h);
     const im=ctx.getImageData(0,0,w,h),d=im.data;
     for(let i=0;i<d.length;i+=4){
       const g=.299*d[i]+.587*d[i+1]+.114*d[i+2];
-      let v=(g-128)*(region?1.15:1.45)+128; v=Math.max(0,Math.min(255,v));
+      let v=region?.digits?g:(g-128)*(region?1.15:1.45)+128;
+      if(region?.binary)v=g<170?0:255; v=Math.max(0,Math.min(255,v));
       if(!region&&v>225)v=255;
       d[i]=d[i+1]=d[i+2]=v;
     }
-    ctx.putImageData(im,0,0);return c;
+    ctx.putImageData(im,0,0);
+    if(region?.digits){
+      const padded=document.createElement('canvas');padded.width=w+48;padded.height=h+48;
+      const pc=padded.getContext('2d');pc.fillStyle='#fff';pc.fillRect(0,0,padded.width,padded.height);pc.drawImage(c,24,24);return padded;
+    }
+    return c;
   }finally{URL.revokeObjectURL(url)}
 }
 
@@ -409,6 +417,48 @@ function amountRegion(lines,pageHeight){
   return {top:Math.max(0,top/pageHeight),bottom:Math.min(1,bottom/pageHeight)};
 }
 
+function amountDigitRegions(lines,pageWidth,pageHeight){
+  const totals=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/;
+  const excluded=/小計|税率|消費税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
+  const regions=[];
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const text=line.words.map(w=>w.text).join('').replace(/\s/g,'');
+    if(!totals.test(text)||excluded.test(text))continue;
+    let end=0;
+    for(let k=0;k<line.words.length;k++){
+      if(totals.test(line.words.slice(0,k+1).map(w=>w.text).join(''))){end=line.words[k].box.x1;break}
+    }
+    const money=moneyPieces(line).filter(m=>m.x1>end);
+    let target=line,left=end;
+    if(!money.length){
+      const next=lines[i+1];
+      if(!next||excluded.test(next.words.map(w=>w.text).join(''))||!moneyPieces(next).length)continue;
+      if(next.cy-line.cy>line.avgH*3)continue;
+      target=next;left=Math.max(0,Math.min(...next.words.map(w=>w.box.x0))-next.avgH*3);
+    }
+    const top=Math.min(...target.words.map(w=>w.box.y0))-target.avgH*.3;
+    const bottom=Math.max(...target.words.map(w=>w.box.y1))+target.avgH*.3;
+    regions.push({top:Math.max(0,top/pageHeight),bottom:Math.min(1,bottom/pageHeight),left:Math.max(0,(left-target.avgH*.2)/pageWidth)});
+  }
+  return regions.slice(0,3);
+}
+function digitAmount(text){
+  const t=normalizeText(text).trim().replace(/[¥円\s]/g,'');
+  const clean=/^\d{1,3}\.\d{3}$/.test(t)?t.replace('.',','):t;
+  return moneyNumber(clean)||'';
+}
+function chooseAmountReadings(readings){
+  const agreed=[];
+  for(const r of readings){
+    if(readings.some(x=>x.region===r.region&&x.pass!==r.pass&&x.n===r.n))agreed.push(r.n);
+  }
+  const values=[...new Set(agreed)];
+  if(values.length===1)return {amount:values[0],confirmed:true,conflict:false};
+  const all=[...new Set(readings.map(r=>r.n))];
+  return {amount:'',confirmed:false,conflict:values.length>1||all.length>1};
+}
+
 function simplify(s){
   return normalizeText(s).toUpperCase().replace(/\s+/g,'').replace(/[^\p{L}\p{N}]/gu,'');
 }
@@ -479,26 +529,36 @@ $('#receiptInput').addEventListener('change',async e=>{
   try{
     $('#ocrProgress').style.width='0%';
     $('#ocrStatus').textContent='画像を補正中…';
-    const full=await recognizeOne(file,'全体',0,45);
+    let full=await recognizeOne(file,'全体',0,30);
+    if(!amountDigitRegions(full.lines,full.canvas.width,full.canvas.height).length){
+      try{
+        const high=await preprocess(file,false,{top:0,bottom:1});
+        const retry=await recognizeCanvas(high,'合計の位置',30,45,{tessedit_pageseg_mode:'11'});
+        if(amountDigitRegions(retry.lines,high.width,high.height).length)full={...retry,text:full.text+'\n'+retry.text};
+      }catch(err){console.warn('合計位置の再確認に失敗',err)}
+    }
     const date=parseDate(full.text);
     let amount=parseAmount(full.lines);
     let amountText='';
-    const region=amountRegion(full.lines,full.canvas.height);
-    if(region){
-      try{
-        $('#ocrStatus').textContent='合計部分を補正中…';
-        const crop=await preprocess(file,false,region);
-        const detail=await recognizeCanvas(crop,'合計',45,75,{tessedit_pageseg_mode:'6'});
-        amountText=detail.text;
-        // 合計ラベルを再確認できた結果のみ採用する。
-        const totalLines=detail.lines.filter(l=>{
-          const t=l.words.map(w=>w.text).join('').replace(/\s/g,'');
-          return /総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/.test(t)&&!/小計|税|釣銭|お釣|預り|預かり|ポイント|値引|割引/.test(t);
-        });
-        const refined=parseAmount(totalLines);
-        if(refined)amount=refined;
-      }catch(err){console.warn('合計の再読み取りに失敗',err)}
+    const regions=amountDigitRegions(full.lines,full.canvas.width,full.canvas.height);
+    const readings=[];
+    for(let i=0;i<regions.length;i++){
+      for(let pass=0;pass<2;pass++){
+        try{
+          const crop=await preprocess(file,false,{...regions[i],digits:true,binary:pass===1});
+          const detail=await recognizeCanvas(crop,'金額の確認',45+(i*2+pass)*30/(regions.length*2),45+(i*2+pass+1)*30/(regions.length*2),{
+            language:'eng',tessedit_pageseg_mode:pass===0?'7':'13',tessedit_char_whitelist:'0123456789,.¥',
+          });
+          amountText+=detail.text+'\n';
+          const n=digitAmount(detail.text);
+          if(n)readings.push({n,region:i,pass});
+        }catch(err){console.warn('金額の再読み取りに失敗',err)}
+      }
     }
+    const decision=chooseAmountReadings(readings);
+    if(decision.amount)amount=decision.amount;
+    const amountNeedsCheck=!decision.confirmed;
+    if(decision.conflict)amount='';
     let merchantInfo=parseMerchant(full.lines,full.canvas.height);
     let merchantText='';
     // 元写真の上部を切り出して再読み取りする。
@@ -523,6 +583,8 @@ $('#receiptInput').addEventListener('change',async e=>{
     const missing=[];
     if(!merchantInfo.merchant)missing.push('店名');
     if(!amount)missing.push('合計金額');
+    $('#ocrHint').textContent=amountNeedsCheck?'合計金額を確実に読み取れませんでした。写真と照合して入力・修正してください。':'OCR結果は必ず保存前に確認してください。';
+    if(amountNeedsCheck&&!missing.includes('合計金額'))missing.push('合計金額');
     $('#ocrStatus').textContent=missing.length?`読み取り完了（${missing.join('・')}を確認）`:'読み取り完了';
 
     // 失敗時の調整に使えるよう、OCR原文を画面内に残す（普段は隠す）
@@ -543,8 +605,8 @@ async function recognizeOne(file,label,startPct,endPct){
 }
 
 async function recognizeCanvas(canvas,label,startPct,endPct,parameters={}){
-  const result=await Tesseract.recognize(canvas,'jpn+eng',{
-    ...parameters,
+  const {language='jpn+eng',...settings}=parameters;
+  const worker=await Tesseract.createWorker(language,1,{
     logger:m=>{
       if(m.status==='recognizing text'){
         const p=Math.round(startPct+(endPct-startPct)*(m.progress||0));
@@ -553,6 +615,11 @@ async function recognizeCanvas(canvas,label,startPct,endPct,parameters={}){
       }
     }
   });
+  let result;
+  try{
+    await worker.setParameters({user_defined_dpi:'300',...settings});
+    result=await worker.recognize(canvas);
+  }finally{await worker.terminate()}
   const data=result.data||{};
   return {
     canvas,
