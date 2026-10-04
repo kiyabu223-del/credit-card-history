@@ -48,6 +48,21 @@ function line(parts, y) {
   assert.equal(context.digitAmount('4.620'), 4620);
   assert.equal(context.digitAmount('620'), 620);
   assert.equal(context.digitAmount('123abc'), '');
+  // 提供された写真のOCRと同じ、千区切り後が広い配置。
+  const spaced = { words: [
+    {text:'合計',box:{x0:321,x1:344,y0:641,y1:653}},
+    {text:'¥4,',box:{x0:433,x1:453,y0:644,y1:654}},
+    {text:'620',box:{x0:470,x1:504,y0:644,y1:655}},
+  ],cy:648,avgH:11};
+  assert.equal(context.parseAmount([spaced]),4620);
+  spaced.words[1].text='\\4,';
+  assert.equal(context.parseAmount([spaced]),4620);
+  const tight=context.amountDigitRegions([spaced],715,953)[0];
+  assert(tight.top*953>639); // 上の税額行の下端が639
+  assert(tight.bottom*953<667); // 次の支払行の上端が667
+  assert(tight.right<.75); // 写真右側の手・背景を除外
+  assert(tight.left*715<433); // 先頭の4を含む
+  assert.equal(context.inkThreshold(new Uint8Array([40,40,40,255,200,200,200,255])),40);
   const regions = context.amountDigitRegions([line(['合計', '620'], 600)], 1000, 1000);
   assert.equal(regions.length, 1);
   assert(regions[0].left < .045); // 数字の位置ではなくラベル直後から切り出す
