@@ -265,21 +265,22 @@ function groupLines(words){
   return lines.sort((a,b)=>a.cy-b.cy);
 }
 
-async function preprocess(file,merchantCrop=false){
+async function preprocess(file,merchantCrop=false,region=null){
   const url=URL.createObjectURL(file);
   try{
     const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
-    const sourceH=merchantCrop?Math.ceil(img.naturalHeight*.4):img.naturalHeight;
-    const maxW=merchantCrop?2400:1800;
-    const scale=merchantCrop?Math.min(2,maxW/img.naturalWidth):Math.min(1,maxW/img.naturalWidth);
+    const sourceY=region?Math.floor(img.naturalHeight*region.top):0;
+    const sourceH=region?Math.max(1,Math.ceil(img.naturalHeight*region.bottom)-sourceY):(merchantCrop?Math.ceil(img.naturalHeight*.4):img.naturalHeight);
+    const maxW=region?3600:(merchantCrop?2400:1800);
+    const scale=region?Math.min(3,maxW/img.naturalWidth):(merchantCrop?Math.min(2,maxW/img.naturalWidth):Math.min(1,maxW/img.naturalWidth));
     const w=Math.round(img.naturalWidth*scale),h=Math.round(sourceH*scale);
     const c=document.createElement('canvas');c.width=w;c.height=h;
-    const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,img.naturalWidth,sourceH,0,0,w,h);
+    const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,sourceY,img.naturalWidth,sourceH,0,0,w,h);
     const im=ctx.getImageData(0,0,w,h),d=im.data;
     for(let i=0;i<d.length;i+=4){
       const g=.299*d[i]+.587*d[i+1]+.114*d[i+2];
-      let v=(g-128)*1.45+128; v=Math.max(0,Math.min(255,v));
-      if(v>225)v=255;
+      let v=(g-128)*(region?1.15:1.45)+128; v=Math.max(0,Math.min(255,v));
+      if(!region&&v>225)v=255;
       d[i]=d[i+1]=d[i+2]=v;
     }
     ctx.putImageData(im,0,0);return c;
@@ -394,6 +395,20 @@ function parseAmount(lines){
   return cands[0]?.n||'';
 }
 
+function amountRegion(lines,pageHeight){
+  const total=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/;
+  const exclude=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
+  const matches=lines.filter(l=>{
+    const text=l.words.map(w=>w.text).join('').replace(/\s/g,'');
+    return total.test(text)&&!exclude.test(text);
+  });
+  if(!matches.length)return null;
+  // 横方向は切り詰めず、読み落とした先頭桁も必ず範囲に含める。
+  const top=Math.min(...matches.map(l=>Math.min(...l.words.map(w=>w.box.y0))-l.avgH));
+  const bottom=Math.max(...matches.map(l=>Math.max(...l.words.map(w=>w.box.y1))+l.avgH*3));
+  return {top:Math.max(0,top/pageHeight),bottom:Math.min(1,bottom/pageHeight)};
+}
+
 function simplify(s){
   return normalizeText(s).toUpperCase().replace(/\s+/g,'').replace(/[^\p{L}\p{N}]/gu,'');
 }
@@ -464,16 +479,33 @@ $('#receiptInput').addEventListener('change',async e=>{
   try{
     $('#ocrProgress').style.width='0%';
     $('#ocrStatus').textContent='画像を補正中…';
-    const full=await recognizeOne(file,'全体',0,65);
+    const full=await recognizeOne(file,'全体',0,45);
     const date=parseDate(full.text);
-    const amount=parseAmount(full.lines);
+    let amount=parseAmount(full.lines);
+    let amountText='';
+    const region=amountRegion(full.lines,full.canvas.height);
+    if(region){
+      try{
+        $('#ocrStatus').textContent='合計部分を補正中…';
+        const crop=await preprocess(file,false,region);
+        const detail=await recognizeCanvas(crop,'合計',45,75,{tessedit_pageseg_mode:'6'});
+        amountText=detail.text;
+        // 合計ラベルを再確認できた結果のみ採用する。
+        const totalLines=detail.lines.filter(l=>{
+          const t=l.words.map(w=>w.text).join('').replace(/\s/g,'');
+          return /総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/.test(t)&&!/小計|税|釣銭|お釣|預り|預かり|ポイント|値引|割引/.test(t);
+        });
+        const refined=parseAmount(totalLines);
+        if(refined)amount=refined;
+      }catch(err){console.warn('合計の再読み取りに失敗',err)}
+    }
     let merchantInfo=parseMerchant(full.lines,full.canvas.height);
     let merchantText='';
     // 元写真の上部を切り出して再読み取りする。
     try{
       $('#ocrStatus').textContent='店名部分を補正中…';
       const header=await preprocess(file,true);
-      const zoom=await recognizeCanvas(header,'店名',65,100);
+      const zoom=await recognizeCanvas(header,'店名',75,100);
       merchantText=zoom.text;
       const candidate=parseMerchantZoom(zoom.lines,header.height,zoom.text);
       if(candidate.merchant)merchantInfo=candidate;
@@ -494,7 +526,7 @@ $('#receiptInput').addEventListener('change',async e=>{
     $('#ocrStatus').textContent=missing.length?`読み取り完了（${missing.join('・')}を確認）`:'読み取り完了';
 
     // 失敗時の調整に使えるよう、OCR原文を画面内に残す（普段は隠す）
-    $('#debugBox').textContent='【全体】\n'+text.slice(0,800)+'\n【店名部分】\n'+merchantText.slice(0,400);
+    $('#debugBox').textContent='【全体】\n'+text.slice(0,800)+'\n【合計部分】\n'+amountText.slice(0,400)+'\n【店名部分】\n'+merchantText.slice(0,400);
     console.log('OCR raw',text);
     console.log('parsed',{date,merchant:merchantInfo.merchant,amount});
   }catch(err){
@@ -510,8 +542,9 @@ async function recognizeOne(file,label,startPct,endPct){
   return recognizeCanvas(canvas,label,startPct,endPct);
 }
 
-async function recognizeCanvas(canvas,label,startPct,endPct){
+async function recognizeCanvas(canvas,label,startPct,endPct,parameters={}){
   const result=await Tesseract.recognize(canvas,'jpn+eng',{
+    ...parameters,
     logger:m=>{
       if(m.status==='recognizing text'){
         const p=Math.round(startPct+(endPct-startPct)*(m.progress||0));
