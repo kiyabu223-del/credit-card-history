@@ -46,7 +46,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}input{wi
 </style>
 </head>
 <body>
-<header><h1>クレジットカード利用履歴 <time class="revision" datetime="2026-10-04T13:59:00+09:00" aria-label="修正日時（日本時間）">2026/10/4 13:59</time></h1></header>
+<header><h1>クレジットカード利用履歴 <time class="revision" datetime="2026-10-04T14:16:00+09:00" aria-label="修正日時（日本時間）">2026/10/4 14:16</time></h1></header>
 <main class="wrap">
   <div class="monthbar">
     <button id="prevMonth" class="iconbtn">‹</button>
@@ -333,8 +333,9 @@ async function preprocess(file,merchantCrop=false,region=null){
   }finally{URL.revokeObjectURL(url)}
 }
 
-function parseDate(text){
-  const t=normalizeText(text);
+function parseDate(text,checkWeekday=true){
+  // OCRが「2 0 2 6」「1 0 月」のように文字間を空けても日付を解析する。
+  const t=normalizeText(text).replace(/[^\S\r\n]+/g,'');
   const pats=[
     /(20\d{2})\s*[\/\-.年]\s*(\d{1,2})\s*[\/\-.月]\s*(\d{1,2})/,
     /(\d{2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/
@@ -342,7 +343,10 @@ function parseDate(text){
   for(const p of pats){
     const m=t.match(p); if(!m)continue;
     let y=+m[1];if(y<100)y+=2000;const mo=+m[2],d=+m[3];
-    if(mo>=1&&mo<=12&&d>=1&&d<=31)return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const check=new Date(y,mo-1,d);
+    const weekday=t.slice(m.index+m[0].length).match(/^日?[（(]([日月火水木金土])(?:曜日?)?[）)]/);
+    if(checkWeekday&&weekday&&check.getDay()!=='日月火水木金土'.indexOf(weekday[1]))continue;
+    if(check.getFullYear()===y&&check.getMonth()===mo-1&&check.getDate()===d)return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   }
   return '';
 }
@@ -355,7 +359,7 @@ function moneyNumber(s){
   const n=Number(t.replace(/,/g,''));
   return Number.isFinite(n)&&n>=10&&n<10000000?n:null;
 }
-const TOTAL_LABEL=/総?合計|総額|お支払(?:い)?(?:金額|額)?|ご請求(?:金額|額)?|請求(?:金額|額)|支払(?:い)?(?:金額|額)|取引金額|カード支払|クレジット支払|お会計|お買(?:い)?上(?:げ)?(?:金額|額|計)|(?:GRAND\s*)?TOTAL|AMOUNT\s*(?:DUE|PAID)/i;
+const TOTAL_LABEL=/総?合計|総額|お支払(?:い)?(?:金額|額)?|ご請求(?:金額|額)?|請求(?:金額|額)|支払(?:い)?(?:金額|額)|取引金額|カード支払|クレジット支払|お会計|お買(?:い)?上(?:げ)?(?:金額|額|計)|(?:QUICPay|PayPay|電子マネー|交通系IC)(?:支払)?|(?:GRAND\s*)?TOTAL|AMOUNT\s*(?:DUE|PAID)/i;
 const AMOUNT_EXCLUDE=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引|SUB\s*TOTAL|TAX|CHANGE|TENDERED/i;
 function totalLabelEnd(line){
   let prefix='';
@@ -499,6 +503,13 @@ function digitAmount(text){
   const clean=/^\d{1,3}\.\d{3}$/.test(t)?t.replace('.',','):t;
   return moneyNumber(clean)||'';
 }
+function dateRegion(lines,pageWidth,pageHeight){
+  const line=lines.find(l=>parseDate(l.words.map(w=>w.text).join(' '),false));
+  if(!line)return null;
+  const top=Math.min(...line.words.map(w=>w.box.y0))-line.avgH*.2;
+  const bottom=Math.max(...line.words.map(w=>w.box.y1))+line.avgH*.2;
+  return {top:Math.max(0,top/pageHeight),bottom:Math.min(1,bottom/pageHeight),left:Math.max(0,(Math.min(...line.words.map(w=>w.box.x0))-line.avgH)/pageWidth),right:Math.min(1,(Math.max(...line.words.map(w=>w.box.x1))+line.avgH)/pageWidth)};
+}
 function chooseAmountReadings(readings){
   const agreed=[];
   for(const r of readings){
@@ -588,7 +599,24 @@ $('#receiptInput').addEventListener('change',async e=>{
         if(amountDigitRegions(retry.lines,high.width,high.height).length)full={...retry,text:full.text+'\n'+retry.text};
       }catch(err){console.warn('合計位置の再確認に失敗',err)}
     }
-    const date=parseDate(full.text);
+    let date=parseDate(full.text);
+    let dateText='';
+    const dateCrop=dateRegion(full.lines,full.canvas.width,full.canvas.height);
+    if(dateCrop){
+      const dates=[];
+      for(let pass=0;pass<2;pass++){
+        try{
+          const image=await preprocess(file,false,{...dateCrop,digits:true,binary:pass===1});
+          const detail=await recognizeCanvas(image,'日付',35+pass*5,40+pass*5,{tessedit_pageseg_mode:'7'});
+          dateText+=detail.text+'\n';
+          const refined=parseDate(detail.text);
+          if(refined)dates.push(refined);
+        }catch(err){console.warn('日付の再読み取りに失敗',err)}
+      }
+      if(dates.length===2&&dates[0]===dates[1])date=dates[0];
+      else if(dates.length===1&&!date)date=dates[0];
+      else if(dates.some(d=>d!==date))date='';
+    }
     let amount=parseAmount(full.lines);
     let amountText='';
     const regions=amountDigitRegions(full.lines,full.canvas.width,full.canvas.height);
@@ -628,25 +656,27 @@ $('#receiptInput').addEventListener('change',async e=>{
     const text=full.text;
 
     pendingMerchantSignature=merchantInfo.signature||'';
-    $('#dateInput').value=date||isoToday();
+    $('#dateInput').value=date||'';
     $('#merchantInput').value=merchantInfo.merchant||'';
     $('#amountInput').value=amount||'';
 
     const missing=[];
+    if(!date)missing.push('日付');
     if(!merchantInfo.merchant)missing.push('店名');
     if(!amount)missing.push('合計金額');
     $('#ocrHint').textContent=amountNeedsCheck?'合計金額を確実に読み取れませんでした。写真と照合して入力・修正してください。':'OCR結果は必ず保存前に確認してください。';
+    if(!date)$('#ocrHint').textContent='日付を確実に読み取れませんでした。写真の日付を入力してください。'+(amountNeedsCheck?'合計金額も写真と照合してください。':'');
     if(amountNeedsCheck&&!missing.includes('合計金額'))missing.push('合計金額');
     $('#ocrStatus').textContent=missing.length?`読み取り完了（${missing.join('・')}を確認）`:'読み取り完了';
 
     // 失敗時の調整に使えるよう、OCR原文を画面内に残す（普段は隠す）
-    $('#debugBox').textContent='【全体】\n'+text.slice(0,800)+'\n【合計部分】\n'+amountText.slice(0,400)+'\n【店名部分】\n'+merchantText.slice(0,400);
+    $('#debugBox').textContent='【全体】\n'+text.slice(0,800)+'\n【日付部分】\n'+dateText.slice(0,200)+'\n【合計部分】\n'+amountText.slice(0,400)+'\n【店名部分】\n'+merchantText.slice(0,400);
     console.log('OCR raw',text);
     console.log('parsed',{date,merchant:merchantInfo.merchant,amount});
   }catch(err){
     console.error(err);
     $('#ocrStatus').textContent='読み取りに失敗しました。手動入力してください。';
-    $('#dateInput').value=isoToday();
+    $('#dateInput').value='';
   }
 });
 

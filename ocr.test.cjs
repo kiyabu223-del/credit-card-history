@@ -48,6 +48,10 @@ function line(parts, y) {
   assert.equal(context.digitAmount('4.620'), 4620);
   assert.equal(context.digitAmount('620'), 620);
   assert.equal(context.digitAmount('123abc'), '');
+  assert.equal(context.parseDate('2 0 2 6 年 1 0 月 0 2 日（金）21:06'),'2026-10-02');
+  assert.equal(context.parseDate('2028年10月02日（金）21:06'),'');
+  assert.equal(context.parseDate('2026/02/31'),'');
+  assert.equal(context.parseDate('2026/10/02'),'2026-10-02');
   for(const label of ['総額','お買上金額','お買い上げ金額','お支払い金額','ご請求金額','お会計','TOTAL','GRAND TOTAL','AMOUNT DUE']){
     assert.equal(context.parseAmount([line([label,'1,234'],600)]),1234,label);
     assert.equal(context.amountDigitRegions([line([label,'1,234'],600)],1000,1000).length,1,label);
@@ -55,6 +59,8 @@ function line(parts, y) {
   assert.equal(context.parseAmount([line(['合計¥1,234'],600)]),1234);
   assert.equal(context.amountDigitRegions([line(['合計¥1,234'],600)],1000,1000).length,1);
   assert.equal(context.parseAmount([line(['TOTAL','1,234'],600),line(['SUBTOTAL','1,100'],640),line(['TAX','134'],680)]),1234);
+  assert.equal(context.parseAmount([line(['QUICPay','¥7.733'],600),line(['お釣り','¥0'],640)]),7733);
+  assert.equal(context.amountDigitRegions([line(['QUICPay支払','¥7,733'],600)],1000,1000).length,1);
   // 提供された写真のOCRと同じ、千区切り後が広い配置。
   const spaced = { words: [
     {text:'合計',box:{x0:321,x1:344,y0:641,y1:653}},
@@ -93,11 +99,18 @@ function line(parts, y) {
   context.recognizeCanvas=async()=>({text:'',lines:[],canvas:{width:1000,height:1000}});
   await handlers['#receiptInputchange']({target:{files:[{}],value:''}});
   assert.equal(elements.get('#amountInput').value,1234);
+  assert.equal(elements.get('#dateInput').value,''); // 未読の日付を今日で補わない
   assert(elements.get('#ocrHint').textContent.includes('確実に読み取れません'));
   // ラベルと金額が一語でも専用OCRへ進める。
   context.recognizeOne=async()=>({text:'',lines:[line(['合計¥1,234'],600)],canvas:{width:1000,height:1000}});
   context.recognizeCanvas=async(canvas,label)=>({text:label==='金額の確認'?'1,234':'',lines:[]});
   await handlers['#receiptInputchange']({target:{files:[{}],value:''}});
   assert.equal(elements.get('#amountInput').value,1234);
+  // 全体で年を8と誤読した場合、曜日と一致する再OCRの日付を採用。
+  context.recognizeOne=async()=>({text:'2028年10月02日（金）',lines:[line(['2028年10月02日（金）'],100),line(['QUICPay','¥7,733'],600)],canvas:{width:1000,height:1000}});
+  context.recognizeCanvas=async(canvas,label)=>({text:label==='日付'?'2026年10月02日（金）':label==='金額の確認'?'7,733':'',lines:[]});
+  await handlers['#receiptInputchange']({target:{files:[{}],value:''}});
+  assert.equal(elements.get('#dateInput').value,'2026-10-02');
+  assert.equal(elements.get('#amountInput').value,7733);
   console.log('PASS: OCR設定の適用、worker終了、全角金額、合計行/直下の切り出し、数字再OCRの画面反映、不一致の確認表示');
 })().catch(error => { console.error(error); process.exitCode = 1; });
