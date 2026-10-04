@@ -46,7 +46,7 @@ label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}input{wi
 </style>
 </head>
 <body>
-<header><h1>クレジットカード利用履歴 <time class="revision" datetime="2026-10-04T13:46:00+09:00" aria-label="修正日時（日本時間）">2026/10/4 13:46</time></h1></header>
+<header><h1>クレジットカード利用履歴 <time class="revision" datetime="2026-10-04T13:59:00+09:00" aria-label="修正日時（日本時間）">2026/10/4 13:59</time></h1></header>
 <main class="wrap">
   <div class="monthbar">
     <button id="prevMonth" class="iconbtn">‹</button>
@@ -355,9 +355,37 @@ function moneyNumber(s){
   const n=Number(t.replace(/,/g,''));
   return Number.isFinite(n)&&n>=10&&n<10000000?n:null;
 }
+const TOTAL_LABEL=/総?合計|総額|お支払(?:い)?(?:金額|額)?|ご請求(?:金額|額)?|請求(?:金額|額)|支払(?:い)?(?:金額|額)|取引金額|カード支払|クレジット支払|お会計|お買(?:い)?上(?:げ)?(?:金額|額|計)|(?:GRAND\s*)?TOTAL|AMOUNT\s*(?:DUE|PAID)/i;
+const AMOUNT_EXCLUDE=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引|SUB\s*TOTAL|TAX|CHANGE|TENDERED/i;
+function totalLabelEnd(line){
+  let prefix='';
+  for(const w of line.words){
+    const text=w.text.replace(/\s/g,'');
+    const joined=prefix+text,match=joined.match(TOTAL_LABEL);
+    if(match){
+      const offset=Math.max(0,match.index+match[0].length-prefix.length);
+      return w.box.x0+(w.box.x1-w.box.x0)*Math.min(1,offset/Math.max(1,text.length));
+    }
+    prefix=joined;
+  }
+  return 0;
+}
 function moneyPieces(line){
   const ws=line.words;
   const res=[];
+  // 合計ラベルと金額が一語でも、数値部分を候補として取り出す。
+  const joined=ws.map(w=>w.text).join('').replace(/\s/g,'');
+  if(TOTAL_LABEL.test(joined)&&!AMOUNT_EXCLUDE.test(joined)){
+    for(const w of ws){
+      const text=normalizeText(w.text).replace(/\s/g,'');
+      if(moneyNumber(text))continue;
+      for(const match of text.matchAll(/\d[\d,.]*/g)){
+        const n=moneyNumber(match[0]);if(!n)continue;
+        const width=w.box.x1-w.box.x0;
+        res.push({n,text:match[0],x0:w.box.x0+width*match.index/text.length,x1:w.box.x0+width*(match.index+match[0].length)/text.length,h:w.box.y1-w.box.y0,parts:1});
+      }
+    }
+  }
   // single word
   for(const w of ws){const n=moneyNumber(w.text);if(n)res.push({n,text:w.text,x0:w.box.x0,x1:w.box.x1,h:w.box.y1-w.box.y0,parts:1})}
   // join nearby pieces up to 4 words: 1 , 234 / 1 234 / ¥ 1,234
@@ -392,8 +420,8 @@ function moneyPieces(line){
 }
 
 function parseAmount(lines){
-  const excl=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
-  const total=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払/;
+  const excl=AMOUNT_EXCLUDE;
+  const total=TOTAL_LABEL;
   const allH=[];let maxX=1;
   lines.forEach(l=>l.words.forEach(w=>{allH.push(w.box.y1-w.box.y0);maxX=Math.max(maxX,w.box.x1)}));
   allH.sort((a,b)=>a-b);const med=allH[Math.floor(allH.length/2)]||1;
@@ -414,12 +442,7 @@ function parseAmount(lines){
     const ms=moneyPieces(l);
     const isTotal=total.test(joined);
     if(isTotal){
-      let labelEnd=0;
-      l.words.some((w,k)=>{
-        const s=l.words.slice(0,k+1).map(x=>x.text).join('').replace(/\s/g,'');
-        if(total.test(s)){labelEnd=w.box.x1;return true}
-        return false;
-      });
+      const labelEnd=totalLabelEnd(l);
       ms.forEach(m=>add(m,l,i,m.x0>=labelEnd-5?180:105,'total-line'));
       for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
         if(excl.test(lines[j].words.map(w=>w.text).join('')))continue;
@@ -444,32 +467,15 @@ function parseAmount(lines){
   return cands[0]?.n||'';
 }
 
-function amountRegion(lines,pageHeight){
-  const total=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/;
-  const exclude=/小計|消費税|税率|内税|外税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
-  const matches=lines.filter(l=>{
-    const text=l.words.map(w=>w.text).join('').replace(/\s/g,'');
-    return total.test(text)&&!exclude.test(text);
-  });
-  if(!matches.length)return null;
-  // 横方向は切り詰めず、読み落とした先頭桁も必ず範囲に含める。
-  const top=Math.min(...matches.map(l=>Math.min(...l.words.map(w=>w.box.y0))-l.avgH));
-  const bottom=Math.max(...matches.map(l=>Math.max(...l.words.map(w=>w.box.y1))+l.avgH*3));
-  return {top:Math.max(0,top/pageHeight),bottom:Math.min(1,bottom/pageHeight)};
-}
-
 function amountDigitRegions(lines,pageWidth,pageHeight){
-  const totals=/総?合計|お支払(?:い)?額?|ご請求額?|請求額|支払額|取引金額|カード支払|クレジット支払|お会計/;
-  const excluded=/小計|税率|消費税|釣銭|お釣|預り|預かり|ポイント|値引|割引/;
+  const totals=TOTAL_LABEL;
+  const excluded=AMOUNT_EXCLUDE;
   const regions=[];
   for(let i=0;i<lines.length;i++){
     const line=lines[i];
     const text=line.words.map(w=>w.text).join('').replace(/\s/g,'');
     if(!totals.test(text)||excluded.test(text))continue;
-    let end=0;
-    for(let k=0;k<line.words.length;k++){
-      if(totals.test(line.words.slice(0,k+1).map(w=>w.text).join(''))){end=line.words[k].box.x1;break}
-    }
+    const end=totalLabelEnd(line);
     const money=moneyPieces(line).filter(m=>m.x1>end);
     let target=line,left=end;
     if(!money.length){
@@ -604,7 +610,7 @@ $('#receiptInput').addEventListener('change',async e=>{
     if(decision.amount)amount=decision.amount;
     const amountNeedsCheck=!decision.confirmed;
     if(decision.conflict)amount='';
-    if(!regions.length)amount='';
+    // 切り出しができない場合も全体OCRの候補を残し、確認を促す。
     let merchantInfo=parseMerchant(full.lines,full.canvas.height);
     let merchantText='';
     // 元写真の上部を切り出して再読み取りする。
